@@ -23,8 +23,10 @@ import { appendRepoDotEnv } from "./env-file.ts";
 import { getEvmChainId } from "./evm.ts";
 import { runCommand, runRootScript } from "./exec.ts";
 import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
+import { assertFakenetMode, MpcMode, resolveMpcMode } from "./mpc-mode.ts";
 import { banner, logSkip } from "./output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "./preflight.ts";
+import { normalizeMpcPublicKey, realMpcPublicKey } from "./real-mpc-config.ts";
 
 const MINUTE = 60_000;
 
@@ -90,8 +92,10 @@ export async function resolveEvmChain(env: NodeJS.ProcessEnv): Promise<void> {
  * Ensure `MPC_ROOT_KEY` is set, generating a fresh random key when absent.
  *
  * @param env - The suite's env accumulator.
+ * @throws {Error} If called outside fakenet mode.
  */
 export function ensureMpcRootKey(env: NodeJS.ProcessEnv): void {
+  assertFakenetMode(env, "MPC root-key generation");
   if (env.MPC_ROOT_KEY) {
     logSkip("check/derive MPC root key", `MPC_ROOT_KEY is set as ${env.MPC_ROOT_KEY}`);
     return;
@@ -110,7 +114,7 @@ const mpcKeys = (env: NodeJS.ProcessEnv) => deriveMpcKeys(requireEnv(env, "MPC_R
 
 /**
  * Derive (or check) `MPC_RESPONSE_KEY` for a deployed client contract:
- * `MPC_RESPONSE_KEY = f(MPC root key, client contract address, "midnight
+ * `MPC_RESPONSE_KEY = f(MPC public key, client contract address, "midnight
  * response key")`, the sender-scoped derivation the real MPC uses for
  * respond-bidirectional signing. The key depends on the client contract's
  * address, so this step MUST run after the client contract deploy; the
@@ -132,13 +136,14 @@ export function ensureMpcResponseKey(env: NodeJS.ProcessEnv, contractAddressEnvV
     ),
   );
   if (env.MPC_RESPONSE_KEY) {
-    console.log(`Found MPC_RESPONSE_KEY in the environment as ${env.MPC_RESPONSE_KEY}`);
-    if (env.MPC_RESPONSE_KEY !== expected) {
+    const actual = normalizeMpcPublicKey(env.MPC_RESPONSE_KEY);
+    if (actual !== normalizeMpcPublicKey(expected)) {
       throw new Error(
-        `MPC_RESPONSE_KEY should be derived from MPC_ROOT_KEY + ${contractAddressEnvVar}: ` +
-          `expected ${expected}, found ${env.MPC_RESPONSE_KEY}`,
+        `MPC_RESPONSE_KEY should be derived from the MPC public key + ${contractAddressEnvVar}: ` +
+          `expected ${expected}, found ${actual}`,
       );
     }
+    env.MPC_RESPONSE_KEY = expected;
     logSkip("check/derive MPC_RESPONSE_KEY public key", `MPC_RESPONSE_KEY is set correctly`);
     return;
   }
@@ -151,13 +156,17 @@ export function ensureMpcResponseKey(env: NodeJS.ProcessEnv, contractAddressEnvV
 }
 
 /**
- * Ensure `MPC_SECP256K1_PUBKEY` matches the key derived from `MPC_ROOT_KEY`,
- * deriving it when absent.
+ * Validate the explicit TESTNET_DEV public key in real mode. In fakenet mode,
+ * check or derive `MPC_SECP256K1_PUBKEY` from `MPC_ROOT_KEY`.
  *
  * @param env - The suite's env accumulator.
- * @throws {Error} If a preset `MPC_SECP256K1_PUBKEY` mismatches the derived key.
+ * @throws {Error} If the public key does not match the selected MPC mode.
  */
 export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
+  if (resolveMpcMode(env) === MpcMode.Real) {
+    env.MPC_SECP256K1_PUBKEY = realMpcPublicKey(env);
+    return;
+  }
   const expectedSECP256k1CompressedPubkey = mpcKeys(env).secp256k1CompressedPubkey;
   if (env.MPC_SECP256K1_PUBKEY) {
     console.log(`Found MPC_SECP256K1_PUBKEY in the environment as ${env.MPC_SECP256K1_PUBKEY}`);
@@ -286,9 +295,10 @@ export async function explainDustSpendRejection<T>(
  * (requesters seal the signet address at deploy time).
  *
  * @param env - The suite's env accumulator.
- * @throws {Error} If the deploy fails.
+ * @throws {Error} If called outside fakenet mode or the deploy fails.
  */
 export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<void> {
+  assertFakenetMode(env, "signet singleton deployment");
   if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
     logSkip(
       "deploy signet contract",
@@ -339,9 +349,10 @@ let fakenetHandoffAppended = false;
  * value while this run uses another.
  *
  * @param env - The suite's env accumulator (holds the run's values).
- * @throws {Error} If a hand-off key in `.env` conflicts with the run's value.
+ * @throws {Error} If called outside fakenet mode or a hand-off key conflicts with `.env`.
  */
 export function persistFakenetHandoffToDotEnv(env: NodeJS.ProcessEnv): void {
+  assertFakenetMode(env, "fakenet dotenv handoff");
   if (env.FAKENET_MANAGED === "0") {
     logSkip(
       "persist fakenet hand-off to .env",
@@ -396,9 +407,10 @@ export function persistFakenetHandoffToDotEnv(env: NodeJS.ProcessEnv): void {
  * @param env - The suite's env accumulator (passed to docker compose, whose
  *   interpolation lets process env win over `.env` — same values by the time
  *   this runs, so the two sources agree).
- * @throws {Error} If docker compose fails or the container is not `running` after `up`.
+ * @throws {Error} If called outside fakenet mode, docker compose fails or the container is not running.
  */
 export async function startFakenetResponder(env: NodeJS.ProcessEnv): Promise<void> {
+  assertFakenetMode(env, "fakenet responder startup");
   if (env.FAKENET_MANAGED === "0") {
     logSkip(
       "start fakenet responder",
@@ -450,11 +462,13 @@ export async function startFakenetResponder(env: NodeJS.ProcessEnv): Promise<voi
  * @param env - The suite's env accumulator.
  * @param pipelineKeys - The example's pipeline env-var names, in derivation
  *   order — printed as the ready-to-paste `.env` block.
+ * @throws {Error} If called outside fakenet mode.
  */
 export function printMpcServerConfig(
   env: NodeJS.ProcessEnv,
   pipelineKeys: readonly string[],
 ): void {
+  assertFakenetMode(env, "fakenet server configuration printout");
   const rootKey = env.MPC_ROOT_KEY ?? "(not derived here — already held by the server operator)";
   const managed = env.FAKENET_MANAGED !== "0";
   banner([

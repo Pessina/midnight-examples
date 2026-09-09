@@ -2,7 +2,7 @@
 // signature, broadcast, completeSwap.
 import type { RequestIdHex } from "@sig-net/midnight";
 import { VAULT_SWAP_REQUESTS_PATH } from "@sig-net/midnight-examples-erc20-vault-contract";
-import { getTransactionNonce } from "@sig-net/midnight-examples-test-harness";
+import { assertFakenetMode, getTransactionNonce } from "@sig-net/midnight-examples-test-harness";
 
 import { quoteExactOutputSingle } from "../evm-swap.ts";
 import type { VaultSession } from "../vault-session.ts";
@@ -47,6 +47,7 @@ export async function runSwapRoundTrip(
   amountIn: bigint;
   refunded: boolean;
 }> {
+  assertFakenetMode({ MPC_MODE: session.mpcMode }, "runSwapRoundTrip");
   const context = await session.vaultContext();
 
   await ensureRouterApproved(session);

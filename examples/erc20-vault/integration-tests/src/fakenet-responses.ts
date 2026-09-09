@@ -8,6 +8,8 @@
 // unauthenticated, and a caller must recompute the attestation digest from
 // it and verify the MPC's posted signature before trusting it.
 
+import { assertFakenetMode } from "@sig-net/midnight-examples-test-harness";
+
 /** One observed remote-execution result as the fakenet serves it. */
 export interface FakenetResponse {
   /** The request id, lowercase hex, no 0x prefix. */
@@ -29,10 +31,13 @@ export interface FakenetResponse {
 /**
  * Base URL of the fakenet's helper API (`RESPONSES_API_PORT`, default 3040).
  *
+ * @param env - Mode and helper endpoint configuration.
  * @returns `FAKENET_RESPONSES_URL` when set, the local default otherwise.
  */
-export const fakenetResponsesUrl = (): string =>
-  process.env.FAKENET_RESPONSES_URL ?? "http://localhost:3040";
+export const fakenetResponsesUrl = (env: NodeJS.ProcessEnv = process.env): string => {
+  assertFakenetMode(env, "fakenetResponsesUrl");
+  return env.FAKENET_RESPONSES_URL ?? "http://localhost:3040";
+};
 
 /**
  * Fetch the observed execution result for one request id, retrying while the
@@ -42,14 +47,17 @@ export const fakenetResponsesUrl = (): string =>
  *
  * @param requestId - The request id, hex with or without 0x prefix.
  * @param timeoutMs - How long to keep retrying 404s before failing.
+ * @param env - Mode and helper endpoint configuration.
  * @returns The cached response.
  * @throws {Error} When the API stays unreachable or 404s past the deadline.
  */
 export async function fetchFakenetResponse(
   requestId: string,
   timeoutMs = 30_000,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<FakenetResponse> {
-  const url = `${fakenetResponsesUrl()}/responses/${requestId}`;
+  assertFakenetMode(env, "fetchFakenetResponse");
+  const url = `${fakenetResponsesUrl(env)}/responses/${requestId}`;
   const deadline = Date.now() + timeoutMs;
   let lastFailure = "not attempted";
   do {

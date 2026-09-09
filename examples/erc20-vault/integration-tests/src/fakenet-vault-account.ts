@@ -6,6 +6,7 @@
 import { deriveEpsilon, SECP256K1_ORDER, stripHexPrefix } from "@sig-net/midnight";
 import { VAULT_PATH_HEX } from "@sig-net/midnight-examples-erc20-vault-contract";
 import {
+  assertFakenetMode,
   type ContractReadMethod,
   type ContractWriteMethod,
   requireEnv,
@@ -47,6 +48,7 @@ export async function drainVaultErc20(
   to: string,
   tokenAddress?: string,
 ): Promise<bigint> {
+  assertFakenetMode(env, "drainVaultErc20");
   const vaultContractAddress = requireEnv(env, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   const expectedAddress = requireEnv(env, "EVM_VAULT_ADDRESS");
   // The token to drain; defaults to the suite's ERC20_ADDRESS. The lending refund passes Aave

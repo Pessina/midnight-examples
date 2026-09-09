@@ -2,7 +2,7 @@
 // signature, broadcast, completeSupply.
 import type { RequestIdHex } from "@sig-net/midnight";
 import { VAULT_SUPPLY_REQUESTS_PATH } from "@sig-net/midnight-examples-erc20-vault-contract";
-import { getTransactionNonce } from "@sig-net/midnight-examples-test-harness";
+import { assertFakenetMode, getTransactionNonce } from "@sig-net/midnight-examples-test-harness";
 
 import type { VaultSession } from "../vault-session.ts";
 import { ensureStataApproved } from "./approve-stata.ts";
@@ -34,6 +34,7 @@ export async function runSupplyRoundTrip(
   session: VaultSession,
   opts: SupplyRoundTripOptions,
 ): Promise<{ requestId: RequestIdHex; shares: bigint; refunded: boolean }> {
+  assertFakenetMode({ MPC_MODE: session.mpcMode }, "runSupplyRoundTrip");
   const context = await session.vaultContext();
 
   await ensureStataApproved(session);

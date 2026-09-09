@@ -49,6 +49,7 @@ export interface ShieldedTokenRecipient {
  * @param recipient - The wallet receiving the minted tokens, or the caller's
  *   own wallet when omitted. Only the DEPOSITOR may settle either way: this
  *   redirects the mint, not the right to settle.
+ * @returns The finalized settlement transaction ID.
  * @throws {Error} If the attested outcome is not a success (a failed sweep
  *   mints nothing).
  */
@@ -57,7 +58,7 @@ export async function settleDeposit(
   requestId: RequestIdHex,
   outcome: RespondOutcome,
   recipient?: ShieldedTokenRecipient,
-): Promise<void> {
+): Promise<string> {
   console.log(`vault contract:  ${context.vaultContractAddress}`);
   console.log(`request id:      ${requestId}`);
   if (recipient !== undefined) {
@@ -126,6 +127,7 @@ export async function settleDeposit(
           mintRecipient,
         );
   console.log(`completeDeposit settled in tx ${result.public.txId}`);
+  return result.public.txId;
 }
 
 /** Options for {@link completeDeposit}. */

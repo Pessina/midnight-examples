@@ -4,7 +4,11 @@
 // same mechanism as foundry's `deal`), so dealing needs no funded source account and repeated
 // redeploy campaigns can never exhaust one.
 import { AAVE_USDC } from "@sig-net/midnight-examples-erc20-vault-contract";
-import { type ContractWriteMethod, requireEnv } from "@sig-net/midnight-examples-test-harness";
+import {
+  assertFakenetMode,
+  type ContractWriteMethod,
+  requireEnv,
+} from "@sig-net/midnight-examples-test-harness";
 import { ethers } from "ethers";
 
 /** Real Sepolia USDC (the swap suite's tokenIn), also present on a Sepolia fork. */
@@ -107,13 +111,16 @@ async function dealErc20(
  * @param to - The recipient address.
  * @param usdc - Circle USDC base units to deal (0 deals none).
  * @param aaveUsdc - Aave USDC base units to deal (0 deals none); the lending suite's underlying.
+ * @param env - Mode configuration authorizing fork-only operations.
  */
 export async function dealFork(
   provider: ethers.JsonRpcProvider,
   to: string,
   usdc: bigint,
   aaveUsdc = 0n,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
+  assertFakenetMode(env, "dealFork");
   await provider.send("anvil_setBalance", [to, ONE_ETH]);
   if (usdc > 0n) await dealErc20(provider, SEPOLIA_USDC, to, usdc);
   if (aaveUsdc > 0n) await dealErc20(provider, AAVE_USDC, to, aaveUsdc);
@@ -148,6 +155,7 @@ async function liftAaveUsdcSupplyCap(provider: ethers.JsonRpcProvider): Promise<
  * @throws {Error} If the anvil cheatcalls fail (the EVM is not a cheatcode-capable fork).
  */
 export async function dealForkEvmAccounts(env: NodeJS.ProcessEnv): Promise<void> {
+  assertFakenetMode(env, "dealForkEvmAccounts");
   const rpcUrl = requireEnv(env, "EVM_RPC_URL");
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const user = requireEnv(env, "EVM_USER_ADDRESS");
@@ -171,8 +179,8 @@ export async function dealForkEvmAccounts(env: NodeJS.ProcessEnv): Promise<void>
   const userAaveUsdc = aaveUsdcOnFork ? USER_USDC : 0n;
 
   try {
-    await dealFork(provider, user, USER_USDC, userAaveUsdc);
-    await dealFork(provider, vault, 0n);
+    await dealFork(provider, user, USER_USDC, userAaveUsdc, env);
+    await dealFork(provider, vault, 0n, 0n, env);
     if (aaveUsdcOnFork) await liftAaveUsdcSupplyCap(provider);
   } catch (error) {
     throw new Error(

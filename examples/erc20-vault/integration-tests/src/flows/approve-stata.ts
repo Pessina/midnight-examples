@@ -25,6 +25,7 @@ import {
   STATA_USDC,
 } from "@sig-net/midnight-examples-erc20-vault-contract";
 import {
+  assertFakenetMode,
   type ContractReadMethod,
   getTransactionNonce,
   logSkip,
@@ -52,6 +53,7 @@ const MINUTE = 60_000;
  * @returns The recorded request id.
  */
 export async function approveStata(context: VaultContext, evmNonce: bigint): Promise<RequestIdHex> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "approveStata");
   const before = await readVaultLedger(
     context.providers.publicDataProvider,
     context.vaultContractAddress,
@@ -111,6 +113,7 @@ export async function approveStata(context: VaultContext, evmNonce: bigint): Pro
  * @param session - The vault session.
  */
 export async function ensureStataApproved(session: VaultSession): Promise<void> {
+  assertFakenetMode({ MPC_MODE: session.mpcMode }, "ensureStataApproved");
   const context = await session.vaultContext();
   const { ethers } = await import("ethers");
   const token = new ethers.Contract(

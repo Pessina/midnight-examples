@@ -30,8 +30,17 @@ import {
   vaultCompiledContract,
 } from "@sig-net/midnight-examples-erc20-vault-deploy";
 import type { ProofServerObserver } from "@sig-net/midnight-examples-lib";
-import { requireEnv, type SessionWallet } from "@sig-net/midnight-examples-test-harness";
+import {
+  configureRealMpc,
+  MpcMode,
+  requireEnv,
+  resolveMpcMode,
+  type SessionWallet,
+} from "@sig-net/midnight-examples-test-harness";
 
+import { createEvmOutputProvider, type EvmOutputProvider } from "./evm-output.ts";
+import { type RealMpcStage, resolveRealMpcStage } from "./real-stage.ts";
+import { realPrivateStorage, saveRealState } from "./real-state.ts";
 import { resolveUserIdentity, type UserIdentity } from "./vault-identity.ts";
 
 /**
@@ -42,6 +51,16 @@ import { resolveUserIdentity, type UserIdentity } from "./vault-identity.ts";
  * handles themselves.
  */
 export interface VaultContext {
+  /** Durable real-run facts; a failed reservation prevents transaction submission. */
+  readonly checkpoint?: (entries: Record<string, string>) => void;
+  /** Explicit MPC mode selected by setup, governing real-network capabilities. */
+  readonly mpcMode: MpcMode;
+  /** Explicit live scope for a real run; absent for fakenet. */
+  readonly realMpcStage?: RealMpcStage;
+  /** Configured MPC root public key; real mode requires the validated public key. */
+  readonly mpcPublicKey?: string;
+  /** Independent source of untrusted execution bytes, authenticated by the response resolver. */
+  readonly evmOutputProvider: EvmOutputProvider;
   /** Endpoints + network id of the Midnight network in use. */
   readonly nodeConfig: MidnightNodeConfig;
   /** Address of the deployed ERC20 vault contract on Midnight. */
@@ -86,6 +105,10 @@ export async function createVaultContext(
   wallet: SessionWallet,
   proofObserver?: ProofServerObserver,
 ): Promise<VaultContext> {
+  const mpcMode = resolveMpcMode(env);
+  const realMpcStage: RealMpcStage | undefined =
+    mpcMode === MpcMode.Real ? resolveRealMpcStage(env) : undefined;
+  if (mpcMode === MpcMode.Real) configureRealMpc(env);
   const nodeConfig = getMidnightNodeConfig(env);
   setNetworkId(nodeConfig.networkId);
 
@@ -102,7 +125,13 @@ export async function createVaultContext(
 
   const vaultContractAddress = requireEnv(env, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   const identity = resolveUserIdentity(env);
-  const providers = buildVaultProviders(wallet.facade, wallet.keys, nodeConfig, proofObserver);
+  const providers = buildVaultProviders(
+    wallet.facade,
+    wallet.keys,
+    nodeConfig,
+    proofObserver,
+    mpcMode === MpcMode.Real ? realPrivateStorage(env) : undefined,
+  );
 
   const vault = await findDeployedContract(providers, {
     contractAddress: vaultContractAddress,
@@ -112,6 +141,16 @@ export async function createVaultContext(
   });
 
   return {
+    checkpoint:
+      mpcMode === MpcMode.Real
+        ? (entries) => {
+            saveRealState(env, entries);
+          }
+        : undefined,
+    mpcMode,
+    realMpcStage,
+    mpcPublicKey: env.MPC_SECP256K1_PUBKEY,
+    evmOutputProvider: createEvmOutputProvider(env),
     nodeConfig,
     vaultContractAddress,
     signetContractAddress: requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),

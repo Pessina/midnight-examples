@@ -6,6 +6,7 @@
   "description": "Test-only machinery shared by the examples' integration tests: stack preflight, the env-gated setup pipeline (MPC keys, signet deploy, fakenet hand-off, local-EVM funding), session lifecycle and signet polling. Test deps live here, never in an example's manifests.",
   "exports": {
     ".": "./src/index.ts",
+    "./mpc-mode": "./src/mpc-mode.ts",
     "./flow-hooks": "./src/flow-hooks.ts"
   },
   "scripts": {

@@ -38,15 +38,15 @@ export type SetupStep = readonly [
  *
  * @param project - The vitest project handed to globalSetup.
  * @param steps - The ordered setup steps to run.
+ * @param env - The explicitly prepared environment, or the default repo environment.
  * @throws {Error} Whatever the first failing step throws (aborting the whole run).
  */
 export async function runSetupPipeline(
-  project: TestProject,
+  project: Pick<TestProject, "provide">,
   steps: readonly SetupStep[],
+  env: NodeJS.ProcessEnv = buildBaseEnv(),
 ): Promise<void> {
   if (!process.env.RUN_INTEGRATION_TESTS) return;
-
-  const env = buildBaseEnv();
   for (const [index, [name, run]] of steps.entries()) {
     // Step-through mode pauses before each step after the first, exactly as
     // the flow files pause before each test (globalSetup runs in the main

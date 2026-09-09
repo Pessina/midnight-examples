@@ -37,6 +37,7 @@ import type { RespondOutcome } from "./respond-output.ts";
  * @param requestId - The withdraw request id being settled.
  * @param outcome - The attested outcome from
  *   {@link file://./poll-respond-bidirectional.ts pollRespondBidirectional}.
+ * @returns The finalized settlement transaction ID.
  * @throws {Error} If the withdrawal was already settled (no pending marker on
  *   the ledger), or this wallet is not the withdrawer on a refund route.
  */
@@ -44,7 +45,7 @@ export async function settleWithdraw(
   context: VaultContext,
   requestId: RequestIdHex,
   outcome: RespondOutcome,
-): Promise<void> {
+): Promise<string> {
   console.log(`vault contract:  ${context.vaultContractAddress}`);
   console.log(`request id:      ${requestId}`);
 
@@ -63,7 +64,7 @@ export async function settleWithdraw(
       mintNonce,
     );
     console.log(`refundWithdraw settled in tx ${result.public.txId}`);
-    return;
+    return result.public.txId;
   }
 
   console.log(
@@ -78,6 +79,7 @@ export async function settleWithdraw(
     mintNonce,
   );
   console.log(`completeWithdraw settled in tx ${result.public.txId}`);
+  return result.public.txId;
 }
 
 /** Options for {@link completeWithdraw}. */

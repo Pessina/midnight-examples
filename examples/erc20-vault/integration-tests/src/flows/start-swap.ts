@@ -19,6 +19,7 @@ import {
   readVaultLedger,
   VAULT_PATH_BYTES,
 } from "@sig-net/midnight-examples-erc20-vault-contract";
+import { assertFakenetMode } from "@sig-net/midnight-examples-test-harness";
 
 import {
   EXACT_OUTPUT_SINGLE_SELECTOR,
@@ -50,6 +51,7 @@ export async function startSwap(
   context: VaultContext,
   options: StartSwapOptions,
 ): Promise<RequestIdHex> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "startSwap");
   const tokenIn = evmAddressBytes(context.erc20Address);
   const tokenOut = evmAddressBytes(options.tokenOut);
   const before = await readVaultLedger(

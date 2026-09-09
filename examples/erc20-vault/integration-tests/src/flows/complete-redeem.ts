@@ -14,6 +14,7 @@ import {
 } from "@sig-net/midnight";
 import { VAULT_REDEEM_REQUESTS_PATH } from "@sig-net/midnight-examples-erc20-vault-contract";
 import { readVaultLedger } from "@sig-net/midnight-examples-erc20-vault-contract";
+import { assertFakenetMode } from "@sig-net/midnight-examples-test-harness";
 
 import { REDEEM_OUTPUT_SCHEMA, REDEEM_RESPOND_SCHEMA } from "../evm-stata.ts";
 import { type FakenetResponse, fetchFakenetResponse } from "../fakenet-responses.ts";
@@ -47,15 +48,20 @@ const FAKENET_FETCH_TICK_TIMEOUT_MS = 3_000;
  * candidate with a warning. The fakenet serves one fixed observation per request, so a caller
  * resolving this once holds the candidates for its whole poll.
  *
+ * @param context - The flow context supplying the resolved MPC mode.
  * @param requestId - The redeem request id whose execution result to recompute.
  * @returns The candidates, failure last, or undefined when the fakenet cannot serve this tick.
  */
 async function fetchRedeemCandidates(
+  context: VaultContext,
   requestId: RequestIdHex,
 ): Promise<RedeemCandidate[] | undefined> {
   let cached: FakenetResponse;
   try {
-    cached = await fetchFakenetResponse(requestId, FAKENET_FETCH_TICK_TIMEOUT_MS);
+    cached = await fetchFakenetResponse(requestId, FAKENET_FETCH_TICK_TIMEOUT_MS, {
+      MPC_MODE: context.mpcMode,
+      FAKENET_RESPONSES_URL: process.env.FAKENET_RESPONSES_URL,
+    });
   } catch (error) {
     warnOnce(
       `redeem-fetch:${requestId}`,
@@ -153,6 +159,7 @@ export async function pollRedeemOutcome(
   context: VaultContext,
   options: PollRedeemOutcomeOptions,
 ): Promise<RedeemOutcome> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "pollRedeemOutcome");
   const reader = createResponseReader(context, VAULT_REDEEM_REQUESTS_PATH);
   // The key the settle circuit verifies against, read from the vault's own ledger: checking
   // off-chain against anything else risks accepting a post that cannot prove. initialise
@@ -169,7 +176,7 @@ export async function pollRedeemOutcome(
     // A posted attestation means the fakenet has already cached the observed result (it caches
     // before it posts), so the candidates are worth building only once a post appears.
     if (events.length > 0) {
-      candidates ??= await fetchRedeemCandidates(options.requestId);
+      candidates ??= await fetchRedeemCandidates(context, options.requestId);
       if (candidates !== undefined) {
         const outcome = matchRedeemOutcome(events, options.requestId, candidates, mpcResponseKey);
         if (outcome !== undefined) return outcome;
@@ -195,6 +202,7 @@ export async function settleRedeem(
   requestId: RequestIdHex,
   outcome: RedeemOutcome,
 ): Promise<{ assets: bigint; refunded: boolean }> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "settleRedeem");
   const mintNonce = crypto.getRandomValues(new Uint8Array(32));
   if (outcome.matchedFailureOutput) {
     console.log("redeem tx never executed: refunding the shares to this wallet");
@@ -231,6 +239,7 @@ export async function completeRedeem(
   context: VaultContext,
   requestId: RequestIdHex,
 ): Promise<{ assets: bigint; refunded: boolean }> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "completeRedeem");
   const outcome = await pollRedeemOutcome(context, { requestId });
   return settleRedeem(context, requestId, outcome);
 }

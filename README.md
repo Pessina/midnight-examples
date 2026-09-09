@@ -168,7 +168,59 @@ yarn test:erc20-vault:e2e tests/happy-day-e2e.test.ts  # one spec file (any test
 
 **NOTE:** the midnight proof server is quite heavy. It is recommended that you allocate at least 16 GB of RAM to your docker environment, otherwise expect to have to restart the tests multiple times as the proof server hangs.
 
-# Running against Sepolia
+# Real deployed MPC
+
+`MPC_MODE=real` requires an explicit `REAL_MPC_STAGE` against the deployed Signet TESTNET_DEV MPC, the Stagenet singleton below, and Sepolia chain `11155111`. `signing-only` submits a Midnight deposit request and verifies its finalized MPC signature over the exact EVM transaction without broadcasting to EVM or requiring Sepolia funding. `bidirectional` runs the happy-day deposit/withdrawal suite, including EVM broadcast, RespondBidirectional verification and Midnight settlement. Both stages require only the MPC public key. Setup verifies the singleton's three verifier keys against the installed `@sig-net/midnight` artifacts and tests `debug_traceTransaction` on a real mined transaction before funding or deployment. Other suites, fake responders, fork funding, local Midnight endpoints, genesis seeds and MPC private keys are rejected in this mode. Default `MPC_MODE=fakenet` retains the local workflow.
+
+Create a private run directory outside the checkout with mode `0700`, and an owned `real.env` file inside it with mode `0600`. Put the following configuration in that file, supplying `ROOT_SEED` privately from your funded Stagenet wallet. Do not copy a fakenet `.env` into it. Real mode generates and saves only the deployer/user fee wallets, user identity, maintenance key and encrypted-storage password in the private checkpoint, before using them.
+
+```dotenv
+MPC_MODE=real
+REAL_MPC_STAGE=signing-only
+NETWORK_ID=stagenet
+MIDNIGHT_NODE_URL=https://rpc.stagenet.shielded.tools
+MIDNIGHT_NODE_INDEXER_URL=https://indexer.stagenet.shielded.tools/api/v4/graphql
+MIDNIGHT_NODE_INDEXER_WS_URL=wss://indexer.stagenet.shielded.tools/api/v4/graphql/ws
+MIDNIGHT_NODE_PROOF_SERVER_URL=http://127.0.0.1:6301
+MIDNIGHT_SIGNET_CONTRACT_ADDRESS=777c5ab3f79c7227e4eccab115bb5f26f31948de7992b0f2a973dd52e1b6be0f
+MPC_SECP256K1_PUBKEY=secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq
+EVM_CHAIN_ID=11155111
+EVM_RPC_URL=https://your-sepolia-rpc-provider.example
+ERC20_ADDRESS=0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+EVM_TRACE_PREFLIGHT_TX_HASH=0xbc52241398f410fbef3cecd96a34e101e1ef6a6a3ea4fb86f6017627477bf5bb
+E2E_STATE_FILE=/absolute/private/run/state.json
+```
+
+The public key comes from [`ROOT_PUBLIC_KEYS[ENVS.TESTNET_DEV]` in signet.js](https://github.com/sig-net/signet.js/blob/main/src/constants.ts); ethers validates it and normalizes it to `0x02cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61`. Replace `EVM_RPC_URL` with your public HTTPS Sepolia endpoint supporting `callTracer` and set a successful mined contract-call hash with nonempty output. Keep authenticated endpoint credentials in the private configuration. IP literals, local hostnames and URL credentials/query parameters are rejected. A missing trace is a setup failure; `eth_call` is not a substitute for mined execution output.
+
+After installing dependencies and compiling the contract, check the public infrastructure first:
+
+```sh
+yarn install --immutable
+yarn compile:erc20-vault:zk
+node --env-file=/absolute/private/run/real.env --import tsx examples/erc20-vault/integration-tests/scripts/real-preflight.ts
+```
+
+Once preflight passes, start your own proof server with a unique name, bound only to loopback, then start E2E. Do not start the repository's compose stack for this mode.
+
+```sh
+proof_name="real-mpc-proof-$(date -u +%Y%m%dT%H%M%SZ)"
+docker run --detach --name "$proof_name" --publish 127.0.0.1:6301:6300 midnightntwrk/proof-server:9.0.0-rc.6
+(
+  set -a
+  . /absolute/private/run/real.env
+  set +a
+  yarn test:erc20-vault:e2e tests/signing-only-e2e.test.ts
+)
+# After the run, remove only the proof server you started:
+docker rm --force "$proof_name"
+```
+
+Setup prints the derived `EVM_USER_ADDRESS` and `EVM_VAULT_ADDRESS` after the vault is deployed. Signing-only does not require EVM balances. Before running bidirectional, fund each with at least `0.009` Sepolia ETH, and the user with at least `0.1` Sepolia USDC; funding failures print exact balances and deficits. Change the private configuration to `REAL_MPC_STAGE=bidirectional` and run `yarn test:erc20-vault:e2e tests/happy-day-e2e.test.ts` with the same private env/checkpoint after funding. No EVM account is derived until a vault address has been reserved, and changing that address would change both accounts. Resume revalidates the on-ledger request, account nonce, fees and funding before broadcasting; a saved signature does not make an old transaction current.
+
+The checkpoint preserves the vault address before base submission, validates the sealed singleton, deployer, maintenance authority and installed circuit keys on resume, and installs only missing circuits. Request IDs are reserved before submission. Completed stages are skipped only after saved settlement success and consumed request state are read back; pending requests continue from their saved IDs. An absent reserved deployment/request or a consumed request without a saved settlement receipt stops for manual reconciliation. Retain the checkpoint and logs in that case; deleting the checkpoint can duplicate a deployment or request. An exclusive `.lock` beside the checkpoint prevents simultaneous runs; after a crash, inspect the recorded PID and reconcile submissions before removing a stale lock. Keep the checkpoint, private-state directory and compiled artifacts together for subsequent runs.
+
+# Sepolia with a local fakenet MPC
 
 By default the EVM leg runs on the local anvil chain from `docker-compose.yaml`, which forks Sepolia. To point the tests at the real Sepolia network, only the EVM side changes: the Midnight stack and the fakenet MPC responder stay local. Minimal changes, all in `.env`:
 

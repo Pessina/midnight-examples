@@ -1,47 +1,20 @@
-// Respond-output recomputation: the client half of the signature-only
-// attestation protocol. The MPC's RespondBidirectionalEvent carries only the
-// ECDSA signature over the attestation digest (binding requestId and
-// serializedOutput), never the digest and never the output itself, so the
-// client obtains the output bytes independently and checks the signature
-// against them. Every call recomputes BOTH candidate outputs the protocol
-// allows and tries the posted events against both:
-//
-//   success candidate -> the fakenet's cached raw traced output (from its
-//                        public /responses/{requestId} helper API), decoded
-//                        per the schema and re-packed per the schema. Only
-//                        computable when the cache reports an executed
-//                        transaction with output bytes.
-//   failure candidate -> the protocol's fixed 5-byte failure output
-//                        (MPC_FAILURE_OUTPUT), schema-independent by design,
-//                        always a candidate.
-//
-// Candidate selection is by SIGNATURE VERIFICATION alone, against the
-// response key the vault pinned at initialise: the cache's own success flag
-// is unauthenticated and never decides anything, it only gates whether a
-// success candidate can be built at all. With no digest on the event there is
-// nothing else to match on. Which candidate verified is also what routes
-// settlement: the success candidate goes to `completeDeposit` for a sweep and
-// to `completeWithdraw` for a transfer, the failure candidate is unclaimable
-// on a sweep and goes to `refundWithdraw` on a transfer. The fetched
-// output is UNTRUSTED until that check: the verified bytes go into the settle
-// circuit as an argument, where `verifyRespondBidirectionalEvent<N>` re-hashes
-// them and verifies the same signature in-circuit. That in-circuit check is
-// the authentication gate, so a forged post merely wastes a proof here, it
-// cannot mint.
-
 import {
+  deriveMidnightResponseKey,
   deserializeEvmOutput,
+  formatSecp256k1PublicKey,
   MPC_FAILURE_OUTPUT,
   requestIdBytes,
   type RequestIdHex,
   type RespondBidirectionalEvent,
+  type Secp256k1Point,
   serializeRespondOutput,
+  type SignetRequestResponseReader,
   verifyRespondBidirectionalSignature,
 } from "@sig-net/midnight";
 import { readVaultLedger } from "@sig-net/midnight-examples-erc20-vault-contract";
+import { MpcMode } from "@sig-net/midnight-examples-test-harness";
 
-import { fetchFakenetResponse } from "../fakenet-responses.ts";
-import { ERC20_TRANSFER_RESULT_SCHEMA } from "../mpc-routing.ts";
+import type { EvmOutputProvider } from "../evm-output.ts";
 import { createResponseReader, type VaultContext } from "../vault-context.ts";
 import { warnOnce } from "../warn-once.ts";
 
@@ -51,56 +24,95 @@ export interface RespondOutcome {
   readonly event: RespondBidirectionalEvent;
   /** The recomputed output bytes the signature covers (a circuit argument). */
   readonly serializedOutput: Uint8Array;
-  /**
-   * True only when the SUCCESS candidate matched AND its decoded transfer
-   * result bool is true. The vault's ERC20 transfer schema decodes a single
-   * bool, so `succeeded: false` alongside `matchedFailureOutput: false`
-   * means the transfer executed and returned false.
-   */
+  /** True only for an executed transfer whose attested return value is true. */
   readonly succeeded: boolean;
-  /**
-   * True when the matched candidate is the protocol's fixed failure output
-   * (MPC_FAILURE_OUTPUT), by candidate identity: the transaction reverted or
-   * was replaced, so the transfer never executed.
-   */
+  /** True only for the SDK's fixed failure bytes, selecting the refund circuit. */
   readonly matchedFailureOutput: boolean;
 }
 
-// How long one poll tick waits on the fakenet's /responses API. Deliberately
-// short: the OUTER poll loop (pollRespondBidirectional's timeoutMs and
-// intervalMs) owns the deadline, so a tick that cannot fetch gives up fast
-// and lets the next tick retry.
-const FAKENET_FETCH_TICK_TIMEOUT_MS = 3_000;
+/**
+ * Authenticate an execution outcome using the vault's pinned key and independent output source.
+ * The fixed failure candidate is checked before obtaining execution output: a replaced transaction
+ * need not have a receipt, and an unavailable trace must not hide an authenticated failure.
+ *
+ * @param reader - SDK reader over the vault request map and external signet event source.
+ * @param requestId - Request whose signatures and output are being checked.
+ * @param mpcResponseKey - Response key read from the vault ledger, also checked by settlement circuits.
+ * @param outputProvider - Untrusted output lookup, used only after no failure attestation verifies.
+ * @param expectedResponseKey - Publicly derived response key required in real mode.
+ * @returns A verified outcome, or undefined when no candidate verifies this poll tick.
+ * @throws {Error} If the pinned key disagrees with the configured public derivation or event reads fail.
+ */
+export async function resolveAttestedRespondOutcome(
+  reader: SignetRequestResponseReader,
+  requestId: RequestIdHex,
+  mpcResponseKey: Secp256k1Point,
+  outputProvider: EvmOutputProvider,
+  expectedResponseKey?: Secp256k1Point,
+): Promise<RespondOutcome | undefined> {
+  if (
+    expectedResponseKey !== undefined &&
+    formatSecp256k1PublicKey(mpcResponseKey) !== formatSecp256k1PublicKey(expectedResponseKey)
+  ) {
+    throw new Error("vault response key does not match the configured MPC public key derivation");
+  }
+  const events = await reader.getRespondBidirectionalEvents(requestId);
+  if (events.length === 0) return undefined;
+  const failureEvent = events.find((event) =>
+    verifyRespondBidirectionalSignature(
+      requestIdBytes(requestId),
+      MPC_FAILURE_OUTPUT,
+      event,
+      mpcResponseKey,
+    ),
+  );
+  if (failureEvent !== undefined) {
+    return {
+      event: failureEvent,
+      serializedOutput: MPC_FAILURE_OUTPUT,
+      succeeded: false,
+      matchedFailureOutput: true,
+    };
+  }
+  try {
+    const output = await outputProvider(reader, requestId);
+    if (output === undefined) return undefined;
+    if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(output))
+      throw new Error("execution output has no valid bytes");
+    const request = await reader.getSignatureRequest(requestId);
+    const decoded = deserializeEvmOutput(request.outputDeserializationSchema, output);
+    if (typeof decoded.success !== "boolean")
+      throw new Error("execution output does not contain the transfer result boolean");
+    const serializedOutput = serializeRespondOutput(request.respondSerializationSchema, decoded);
+    const event = events.find((posted) =>
+      verifyRespondBidirectionalSignature(
+        requestIdBytes(requestId),
+        serializedOutput,
+        posted,
+        mpcResponseKey,
+      ),
+    );
+    return event === undefined
+      ? undefined
+      : { event, serializedOutput, succeeded: decoded.success, matchedFailureOutput: false };
+  } catch (error) {
+    warnOnce(
+      `output:${requestId}`,
+      `execution output unavailable for ${requestId}: ${String(error)}`,
+    );
+    return undefined;
+  }
+}
 
 /**
- * Resolve the attested outcome for `requestId`: fetch the posted
- * RespondBidirectionalEvents, recompute both candidate serialized outputs,
- * and return the first event whose signature verifies over one of the
- * candidates against the response key the vault pinned at initialise.
+ * Resolve the vault's attested transfer outcome through its explicitly selected output provider.
+ * Settlement circuits repeat the SDK signature verification over the returned bytes.
  *
- * The failure candidate (the protocol's fixed 5-byte failure output) is
- * always computed. The success candidate (the fakenet's cached raw output,
- * decoded per the schema and re-packed per the schema, the exact two
- * conversions the responder ran on its side) is attempted only when the
- * cache reports an executed transaction with output bytes, and a decode
- * failure (for example empty `0x` return data from a non-bool ERC20) drops
- * it with a warning rather than crashing the poll. The respond events are
- * unauthenticated (anyone may post), so that signature check is what selects
- * a trustworthy record here, and the settle circuits run the same check
- * in-circuit, which remains the actual authentication gate.
- *
- * A fakenet fetch failure inside one call logs once and yields `undefined`,
- * so the caller's poll loop (its own timeoutMs/intervalMs) owns the
- * deadline: this function never blocks a tick beyond a short fetch timeout.
- *
- * @param context - The flow context.
- * @param requestId - The request id to resolve.
- * @param requestsPath - The resolved ledger-tree path of the map holding the
- *   request: `VAULT_DEPOSIT_REQUESTS_PATH` for a deposit sweep, the default
- *   `VAULT_REQUESTS_PATH` for a withdraw transfer.
- * @returns The verified outcome, or `undefined` when no attestation has been
- *   posted yet, none verifies over a recomputed candidate, or the fakenet's
- *   /responses API could not serve this tick.
+ * @param context - Validated flow configuration and providers.
+ * @param requestId - Request whose attestation is being resolved.
+ * @param requestsPath - Request-map path; defaults to the shared withdrawal map.
+ * @returns A verified outcome, or undefined when no available candidate verifies.
+ * @throws {Error} If required key configuration, ledger reads or response event reads fail.
  */
 export async function fetchAttestedRespondOutcome(
   context: VaultContext,
@@ -108,75 +120,23 @@ export async function fetchAttestedRespondOutcome(
   requestsPath?: readonly number[],
 ): Promise<RespondOutcome | undefined> {
   const reader = createResponseReader(context, requestsPath);
-  const events = await reader.getRespondBidirectionalEvents(requestId);
-  if (events.length === 0) {
-    return undefined;
-  }
-
-  // The key the settle circuit will verify against, read from the vault's own
-  // ledger: checking off-chain against anything else risks accepting a post
-  // that cannot prove.
   const { mpcResponseKey } = await readVaultLedger(
     context.providers.publicDataProvider,
     context.vaultContractAddress,
   );
-
-  // An attestation is posted, so the fakenet has already cached the observed
-  // result (it caches before posting): fetch it now, with a short per-tick
-  // timeout. UNTRUSTED until the signature check below.
-  let cached;
-  try {
-    cached = await fetchFakenetResponse(requestId, FAKENET_FETCH_TICK_TIMEOUT_MS);
-  } catch (error) {
-    warnOnce(
-      `fetch:${requestId}`,
-      `fakenet /responses fetch failed for ${requestId}, will retry on the next poll tick: ${String(error)}`,
+  let expectedResponseKey: Secp256k1Point | undefined;
+  if (context.mpcMode === MpcMode.Real) {
+    if (context.mpcPublicKey === undefined) throw new Error("real MPC public key is required");
+    expectedResponseKey = deriveMidnightResponseKey(
+      context.mpcPublicKey,
+      context.vaultContractAddress,
     );
-    return undefined;
   }
-
-  // The failure candidate always exists. The success candidate needs cached
-  // output bytes, and its decode/re-pack may fail (for example empty `0x`
-  // return data from an ERC20 that returns nothing): then only the failure
-  // candidate can verify. The success candidate is tried first (a genuine MPC
-  // signs exactly one output, so order only matters against forged posts).
-  const candidates: { serializedOutput: Uint8Array; isFailureOutput: boolean }[] = [];
-  let decodedSuccessValue: boolean | undefined;
-  if (cached.success && cached.output !== null) {
-    try {
-      const decoded = deserializeEvmOutput(ERC20_TRANSFER_RESULT_SCHEMA, cached.output);
-      decodedSuccessValue = decoded.success === true;
-      candidates.push({
-        serializedOutput: serializeRespondOutput(ERC20_TRANSFER_RESULT_SCHEMA, decoded),
-        isFailureOutput: false,
-      });
-    } catch (error) {
-      warnOnce(
-        `decode:${requestId}`,
-        `could not decode/re-pack the cached output for ${requestId} ` +
-          `(matching against the failure candidate only): ${String(error)}`,
-      );
-    }
-  }
-  candidates.push({ serializedOutput: MPC_FAILURE_OUTPUT, isFailureOutput: true });
-
-  for (const candidate of candidates) {
-    const event = events.find((posted) =>
-      verifyRespondBidirectionalSignature(
-        requestIdBytes(requestId),
-        candidate.serializedOutput,
-        posted,
-        mpcResponseKey,
-      ),
-    );
-    if (event !== undefined) {
-      return {
-        event,
-        serializedOutput: candidate.serializedOutput,
-        succeeded: !candidate.isFailureOutput && decodedSuccessValue === true,
-        matchedFailureOutput: candidate.isFailureOutput,
-      };
-    }
-  }
-  return undefined;
+  return resolveAttestedRespondOutcome(
+    reader,
+    requestId,
+    mpcResponseKey,
+    context.evmOutputProvider,
+    expectedResponseKey,
+  );
 }

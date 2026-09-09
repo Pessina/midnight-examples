@@ -141,6 +141,7 @@ export async function startWithdraw(
     },
   };
   const expectedIdHex = requestIdHex(calculateRequestId(expectedRecord));
+  context.checkpoint?.({ WITHDRAW_REQUEST_ID: expectedIdHex });
 
   const result = await context.vault.callTx.startWithdraw(
     options.evmNonce,

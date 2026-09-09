@@ -41,6 +41,7 @@ import {
   getTransactionNonce,
   isTransactionMined,
   logSkip,
+  MpcMode,
   pollSignetNotification,
   requireEnv as requireEnvOf,
 } from "@sig-net/midnight-examples-test-harness";
@@ -89,6 +90,9 @@ const calldataWordAt = (words: readonly Uint8Array[], index: number): Uint8Array
 // this file (lazily built, so the offline path never touches the network);
 // stopped once in afterAll.
 const session = createVaultSession(env);
+const realMpc = session.mpcMode === MpcMode.Real;
+const depositSettled = realMpc && Boolean(env.REAL_DEPOSIT_SETTLED_TX_ID);
+const withdrawSettled = realMpc && Boolean(env.REAL_WITHDRAW_SETTLED_TX_ID);
 
 describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e", () => {
   installFlowHooks();
@@ -131,7 +135,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
     15 * MINUTE,
   );
 
-  it(
+  it.skipIf(depositSettled || (realMpc && Boolean(env.DEPOSIT_REQUEST_ID)))(
     "deposit funding preflight: check user EVM account for minimum ETH and USDC balances.",
     async () => {
       const rpcUrl = requireEnv("EVM_RPC_URL");
@@ -160,7 +164,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
   // subsequent deposit stages.
   let depositTransactionSignatureRequestId: RequestIdHex;
 
-  it(
+  it.skipIf(depositSettled)(
     "deposit [erc-vault contract method call]: request a deposit through the flow and read it back MPC-style",
     async () => {
       // A request id given in the environment resumes a prior run (for
@@ -215,7 +219,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
     5 * MINUTE,
   );
 
-  it(
+  it.skipIf(depositSettled)(
     "golden notification: the vault's deposit emitted a decodable notification event on the signet contract",
     async () => {
       // Pins the SignBidirectionalNotification payload layout against a LIVE
@@ -257,7 +261,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
   // Populated by the poll step below for the broadcast step.
   let signedDepositSweepTransaction: Transaction;
 
-  it(
+  it.skipIf(depositSettled)(
     "pollSignatureResponse: poll signet contract for sweep transaction signature response",
     async () => {
       expect(depositTransactionSignatureRequestId).toBeDefined();
@@ -281,13 +285,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
     5 * MINUTE,
   );
 
-  it(
+  it.skipIf(depositSettled)(
     "broadcast deposit sweep evm txn: broadcast to evm",
     async () => {
       expect(signedDepositSweepTransaction).toBeDefined();
 
       const context = await session.vaultContext();
-      const receipt = await broadcastEvm(context, { transaction: signedDepositSweepTransaction });
+      const receipt = await broadcastEvm(context, {
+        transaction: signedDepositSweepTransaction,
+        requestId: depositTransactionSignatureRequestId,
+        requestsPath: VAULT_DEPOSIT_REQUESTS_PATH,
+      });
 
       // No-translation invariant: the transaction the EVM chain accepted
       // carries the vault's stored calldata VERBATIM — selector || words,
@@ -326,13 +334,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
   // Populated by the poll step below for the settle step.
   let depositSweepTransactionRespondBidirectional: RespondOutcome;
 
-  it(
+  it.skipIf(depositSettled)(
     "pollRespondBidirectional: poll signet contract for sweep transaction attestation",
     async () => {
       expect(depositTransactionSignatureRequestId).toBeDefined();
 
       // The attestation carries only the MPC's signature: the poll fetches
-      // the sweep's raw traced output from the fakenet's /responses API,
+      // the sweep's raw traced output from its configured output provider,
       // re-packs it per the schema and verifies the posted events' signatures
       // over it against the response key the vault pinned.
       const context = await session.vaultContext();
@@ -374,14 +382,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
         )}`,
         "",
         "Neither the output nor its digest went on-chain: the raw bytes came",
-        "from the fakenet /responses API, were re-packed here, and the posted",
+        "from the configured output provider, were re-packed, and the posted",
         "signature verified over them.",
       ]);
     },
     5 * MINUTE,
   );
 
-  it(
+  it.skipIf(depositSettled)(
     "completeDeposit [erc-vault contract method call]: verify the MPC attestation in-circuit and consume the request",
     async () => {
       // Final leg of the deposit round trip: the request is on the vault ledger
@@ -411,6 +419,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
       // this request the entry is gone and completeDeposit would reject with
       // "Deposit not found", so skip cleanly instead.
       if (!(await isRequestOnLedger())) {
+        if (context.mpcMode === MpcMode.Real) {
+          throw new Error("deposit request disappeared before settlement; reconcile the saved run");
+        }
         logSkip(
           "completeDeposit",
           `request ${depositTransactionSignatureRequestId} already claimed (not on the ledger)`,
@@ -418,7 +429,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
         return;
       }
 
-      await settleDeposit(
+      const txId = await settleDeposit(
         context,
         depositTransactionSignatureRequestId,
         depositSweepTransactionRespondBidirectional,
@@ -429,6 +440,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
         await isRequestOnLedger(),
         "completeDeposit must consume the request from the ledger",
       ).toBe(false);
+      context.checkpoint?.({ REAL_DEPOSIT_SETTLED_TX_ID: txId });
 
       banner([
         `Deposit ${depositTransactionSignatureRequestId} claimed.`,
@@ -444,7 +456,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
   // user's derived EVM account, spending the shielded tokens completeDeposit minted.
   const WITHDRAW_AMOUNT = parseUnits("0.1", 6);
 
-  it(
+  it.skipIf(withdrawSettled || (realMpc && Boolean(env.WITHDRAW_REQUEST_ID)))(
     "withdraw funding preflight: check vault EVM account for minimum ETH (gas) and ERC20 balances.",
     async () => {
       const rpcUrl = requireEnv("EVM_RPC_URL");
@@ -480,7 +492,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
   // subsequent withdraw stages.
   let withdrawTransactionSignatureRequestId: RequestIdHex;
 
-  it(
+  it.skipIf(withdrawSettled)(
     "withdraw [erc-vault contract method call]: escrow shielded vault tokens and read the request back MPC-style",
     async () => {
       // A request id given in the environment resumes a prior run (for
@@ -540,7 +552,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
     5 * MINUTE,
   );
 
-  it(
+  it.skipIf(withdrawSettled)(
     "watch withdraw signature request: the withdraw emitted a notification event on the signet contract",
     async () => {
       // The same event poll the MPC runs for discovery: withdraw
@@ -572,7 +584,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
   // Populated by the poll step below for the broadcast step.
   let signedWithdrawTransaction: Transaction;
 
-  it(
+  it.skipIf(withdrawSettled)(
     "pollSignatureResponse: poll signet contract for withdraw transaction signature response",
     async () => {
       expect(withdrawTransactionSignatureRequestId).toBeDefined();
@@ -596,7 +608,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
     5 * MINUTE,
   );
 
-  it(
+  it.skipIf(withdrawSettled)(
     "broadcast withdraw evm txn: the ERC20 leaves the vault on the EVM side",
     async () => {
       expect(signedWithdrawTransaction).toBeDefined();
@@ -615,7 +627,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
       const before = await getErc20Balance(rpcUrl, erc20Address, destination);
 
       // broadcastEvm waits for one confirmation and throws if the tx reverted.
-      const receipt = await broadcastEvm(context, { transaction: signedWithdrawTransaction });
+      const receipt = await broadcastEvm(context, {
+        transaction: signedWithdrawTransaction,
+        requestId: withdrawTransactionSignatureRequestId,
+        requestsPath: VAULT_REQUESTS_PATH,
+      });
 
       if (alreadyMined) {
         logSkip(
@@ -642,7 +658,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
   // Populated by the poll step below for the settle step.
   let withdrawRespondBidirectional: RespondOutcome;
 
-  it(
+  it.skipIf(withdrawSettled)(
     "pollRespondBidirectional: poll signet contract for withdraw transaction attestation",
     async () => {
       expect(withdrawTransactionSignatureRequestId).toBeDefined();
@@ -670,7 +686,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
     5 * MINUTE,
   );
 
-  it(
+  it.skipIf(withdrawSettled)(
     "completeWithdraw [erc-vault contract method call]: verify the MPC attestation in-circuit and settle the withdrawal",
     async () => {
       // Final leg of the withdraw round trip: the request is on the vault
@@ -696,6 +712,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
       // would reject with "Withdrawal not found" — skip cleanly instead.
       const before = await readLedger();
       if (!before.withdrawSettleViews.member(requestKey)) {
+        if (context.mpcMode === MpcMode.Real) {
+          throw new Error("withdrawal disappeared before settlement; reconcile the saved run");
+        }
         logSkip(
           "completeWithdraw",
           `withdrawal ${withdrawTransactionSignatureRequestId} already settled (no pending marker on the ledger)`,
@@ -704,7 +723,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
       }
       expect(before.signBidirectionalEventMap.member(requestKey)).toBe(true);
 
-      await settleWithdraw(
+      const txId = await settleWithdraw(
         context,
         withdrawTransactionSignatureRequestId,
         withdrawRespondBidirectional,
@@ -720,6 +739,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
         after.withdrawSettleViews.member(requestKey),
         "completeWithdraw must consume the pending-withdrawal marker",
       ).toBe(false);
+      context.checkpoint?.({ REAL_WITHDRAW_SETTLED_TX_ID: txId });
 
       banner([
         `Withdraw ${withdrawTransactionSignatureRequestId} settled (success — no refund).`,

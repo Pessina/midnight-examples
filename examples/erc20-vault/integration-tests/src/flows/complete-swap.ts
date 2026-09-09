@@ -15,6 +15,7 @@ import {
 } from "@sig-net/midnight";
 import { VAULT_SWAP_REQUESTS_PATH } from "@sig-net/midnight-examples-erc20-vault-contract";
 import { readVaultLedger } from "@sig-net/midnight-examples-erc20-vault-contract";
+import { assertFakenetMode } from "@sig-net/midnight-examples-test-harness";
 
 import { SWAP_OUTPUT_SCHEMA, SWAP_RESPOND_SCHEMA } from "../evm-swap.ts";
 import { type FakenetResponse, fetchFakenetResponse } from "../fakenet-responses.ts";
@@ -48,13 +49,20 @@ const FAKENET_FETCH_TICK_TIMEOUT_MS = 3_000;
  * leaving only the failure candidate able to match. The fakenet serves one fixed observation
  * per request, so a caller resolving this once holds the candidates for its whole poll.
  *
+ * @param context - The flow context supplying the resolved MPC mode.
  * @param requestId - The swap request id whose execution result to recompute.
  * @returns The candidates, failure last, or undefined when the fakenet cannot serve this tick.
  */
-async function fetchSwapCandidates(requestId: RequestIdHex): Promise<SwapCandidate[] | undefined> {
+async function fetchSwapCandidates(
+  context: VaultContext,
+  requestId: RequestIdHex,
+): Promise<SwapCandidate[] | undefined> {
   let cached: FakenetResponse;
   try {
-    cached = await fetchFakenetResponse(requestId, FAKENET_FETCH_TICK_TIMEOUT_MS);
+    cached = await fetchFakenetResponse(requestId, FAKENET_FETCH_TICK_TIMEOUT_MS, {
+      MPC_MODE: context.mpcMode,
+      FAKENET_RESPONSES_URL: process.env.FAKENET_RESPONSES_URL,
+    });
   } catch (error) {
     warnOnce(
       `swap-fetch:${requestId}`,
@@ -152,6 +160,7 @@ export async function pollSwapOutcome(
   context: VaultContext,
   options: PollSwapOutcomeOptions,
 ): Promise<SwapOutcome> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "pollSwapOutcome");
   const reader = createResponseReader(context, VAULT_SWAP_REQUESTS_PATH);
   // The key the settle circuit verifies against, read from the vault's own ledger: checking
   // off-chain against anything else risks accepting a post that cannot prove. initialise
@@ -168,7 +177,7 @@ export async function pollSwapOutcome(
     // A posted attestation means the fakenet has already cached the observed result (it caches
     // before it posts), so the candidates are worth building only once a post appears.
     if (events.length > 0) {
-      candidates ??= await fetchSwapCandidates(options.requestId);
+      candidates ??= await fetchSwapCandidates(context, options.requestId);
       if (candidates !== undefined) {
         const outcome = matchSwapOutcome(events, options.requestId, candidates, mpcResponseKey);
         if (outcome !== undefined) return outcome;
@@ -195,6 +204,7 @@ export async function settleSwap(
   requestId: RequestIdHex,
   outcome: SwapOutcome,
 ): Promise<{ amountIn: bigint; refunded: boolean }> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "settleSwap");
   const mintNonce = crypto.getRandomValues(new Uint8Array(32));
   if (outcome.matchedFailureOutput) {
     console.log("swap tx never executed: refunding tokenIn to this wallet");
@@ -235,6 +245,7 @@ export async function completeSwap(
   context: VaultContext,
   requestId: RequestIdHex,
 ): Promise<{ amountIn: bigint; refunded: boolean }> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "completeSwap");
   const outcome = await pollSwapOutcome(context, { requestId });
   return settleSwap(context, requestId, outcome);
 }

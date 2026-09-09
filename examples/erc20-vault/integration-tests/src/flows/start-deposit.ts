@@ -5,6 +5,7 @@
 // settle side lives in complete-deposit.ts.
 
 import {
+  bytesToHex,
   calculateRequestId,
   evmAddressAbiWord,
   hexToBytes,
@@ -12,6 +13,7 @@ import {
   type RequestIdHex,
   requestIdHex,
   type SignBidirectionalEvent,
+  signBidirectionalEventToUnsignedEvmTransaction,
   SIGNET_DEFAULT_KEY_VERSION,
   stripHexPrefix,
   toSignBidirectionalEventIndex,
@@ -135,6 +137,14 @@ export async function startDeposit(
     },
   };
   const expectedIdHex = requestIdHex(calculateRequestId(expectedRecord));
+  context.checkpoint?.({
+    DEPOSIT_REQUEST_ID: expectedIdHex,
+    REAL_DEPOSIT_UNSIGNED_TRANSACTION:
+      signBidirectionalEventToUnsignedEvmTransaction(expectedRecord).unsignedSerialized,
+    REAL_DEPOSIT_KEY_VERSION: String(expectedRecord.keyVersion),
+    REAL_DEPOSIT_PATH: bytesToHex(expectedRecord.path),
+    REAL_DEPOSIT_REQUESTER: bytesToHex(expectedRecord.sender.bytes),
+  });
 
   const result = await context.vault.callTx.startDeposit(
     options.evmNonce,
@@ -147,6 +157,7 @@ export async function startDeposit(
       amount: options.amount,
     },
   );
+  context.checkpoint?.({ REAL_DEPOSIT_REQUEST_TX_ID: result.public.txId });
   console.log(`deposit finalized in tx ${result.public.txId}`);
 
   // The depositEventMap key IS the record's transientHash digest: recomputing

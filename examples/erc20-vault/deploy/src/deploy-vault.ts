@@ -262,6 +262,8 @@ export interface VaultDeployment {
  *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the signet contract to seal as the
  *   cross-contract signer), `MAINTENANCE_SIGNING_KEY` and the deploy SDK's Midnight
  *   node configuration. Defaults to `process.env`.
+ * @param onPrepared - Durable checkpoint of the exact address before any submission.
+ *   Throwing prevents submission; retain the address to reconcile an interrupted run.
  * @returns The deployed contract address and base deploy transaction id.
  * @throws {WalletUnfundedError} If the deployer wallet holds neither NIGHT nor
  *   DUST: the error carries the wallet's NIGHT receive address to fund.
@@ -275,6 +277,7 @@ export interface VaultDeployment {
  */
 export async function deployVault(
   env: Record<string, string | undefined> = process.env,
+  onPrepared?: (contractAddress: string) => void,
 ): Promise<VaultDeployment> {
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
@@ -313,6 +316,7 @@ export async function deployVault(
     signetSigner,
   );
   const { contractAddress, deferred } = deployTransaction;
+  onPrepared?.(contractAddress);
   console.log(`contract address (pre-submit): ${contractAddress}`);
   console.log(
     `base deploy registers ${String(BASE_DEPLOY_CIRCUITS.length)} circuit(s); ` +

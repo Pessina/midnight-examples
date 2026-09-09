@@ -38,6 +38,9 @@ import { VAULT_MANAGED_PATH } from "./vault-contract-binding.ts";
  * @param keys - The key material of the same wallet, for balancing and signing.
  * @param config - The Midnight network endpoints to run against.
  * @param proofObserver - Called after every proof-server /check and /prove round trip.
+ * @param privateStorage - Optional isolated database path and secret encryption password.
+ * @param privateStorage.databasePath - Absolute private database directory.
+ * @param privateStorage.password - Secret encryption password.
  * @returns The provider set to hand to `findDeployedContract` / `deployContract`.
  * @throws {Error} If the vault's compiler output carries no keys.
  */
@@ -46,6 +49,7 @@ export function buildVaultProviders(
   keys: AccountKeys,
   config: MidnightNodeConfig,
   proofObserver?: ProofServerObserver,
+  privateStorage?: { databasePath: string; password: string },
 ): VaultProviders {
   // Without this check the missing keys surface as an ENOENT inside the proof
   // provider on the first circuit call, with no hint at the fix.
@@ -80,6 +84,7 @@ export function buildVaultProviders(
     // loss matters. Fine here: our private state is just the identity secret
     // the caller already holds in env/config, so nothing is lost with the DB.
     privateStateProvider: levelPrivateStateProvider({
+      ...(privateStorage ? { midnightDbName: privateStorage.databasePath } : {}),
       // Sublevel for private states, keyed by privateStateId.
       // Default 'private-states' (in db 'midnight-level-db').
       // Set to prevent collision with other dApps.
@@ -98,11 +103,9 @@ export function buildVaultProviders(
       // Must pass validatePassword: ≥16 chars, ≥3 of {upper,lower,digit,
       // special}, no 3+ repeated chars, no 4+ sequential runs, else
       // PasswordValidationError at runtime. A constant in source is
-      // obfuscation, not secrecy, acceptable here only because nothing
-      // sensitive is stored. (Kept constant: hex derived from the account id
-      // could trip the repeat/sequence rules, and per-account isolation
-      // already comes from `accountId` scoping.)
-      privateStoragePasswordProvider: () => "&*(BHJqwe419-erc20Vault",
+      // obfuscation, not secrecy. The default preserves the local example;
+      // real E2E supplies its privately persisted random password and path.
+      privateStoragePasswordProvider: () => privateStorage?.password ?? "&*(BHJqwe419-erc20Vault",
     }),
 
     // Retrieves public data from the blockchain.

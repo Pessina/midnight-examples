@@ -1,14 +1,34 @@
 // `broadcastEvm` — send an MPC-signed EVM transaction to the EVM chain. The
 // MPC only SIGNS; broadcasting is a thin client responsibility.
 
-import { JsonRpcProvider, type Transaction, type TransactionReceipt } from "ethers";
+import {
+  bytesToHex,
+  deriveEvmAddress,
+  requestIdBytes,
+  type RequestIdHex,
+  signBidirectionalEventToUnsignedEvmTransaction,
+  stripHexPrefix,
+} from "@sig-net/midnight";
+import {
+  readVaultLedger,
+  VAULT_DEPOSIT_REQUESTS_PATH,
+  VAULT_REQUESTS_PATH,
+} from "@sig-net/midnight-examples-erc20-vault-contract";
+import { getErc20Balance, MpcMode } from "@sig-net/midnight-examples-test-harness";
+import { FetchRequest, JsonRpcProvider, type Transaction, type TransactionReceipt } from "ethers";
 
-import type { VaultContext } from "../vault-context.ts";
+import { redactRpcDiagnostic } from "../evm-output.ts";
+import { RealMpcStage } from "../real-stage.ts";
+import { createResponseReader, type VaultContext } from "../vault-context.ts";
 
 /** Options for {@link broadcastEvm}. */
 export interface BroadcastEvmOptions {
   /** The signed EVM transaction to broadcast (e.g. from `pollSignatureResponse`). */
   readonly transaction: Transaction;
+  /** Required in real mode: the pending request whose exact transaction is authorized. */
+  readonly requestId?: RequestIdHex;
+  /** Required in real mode: the deposit or withdrawal request map's compiled path. */
+  readonly requestsPath?: readonly number[];
   /**
    * When true, a mined-but-reverted tx (`status 0`) is RETURNED instead of throwing. Swaps
    * set this: an on-chain revert (slippage / liquidity) is a valid outcome the MPC attests
@@ -82,7 +102,34 @@ export async function broadcastEvm(
   context: VaultContext,
   options: BroadcastEvmOptions,
 ): Promise<TransactionReceipt> {
-  const provider = new JsonRpcProvider(context.evmRpcUrl);
+  if (context.mpcMode === MpcMode.Real && context.realMpcStage !== RealMpcStage.Bidirectional) {
+    throw new Error("real EVM broadcast requires the explicit bidirectional stage");
+  }
+  const connection = new FetchRequest(context.evmRpcUrl);
+  connection.timeout = 10_000;
+  const provider = new JsonRpcProvider(connection);
+  try {
+    return await broadcastWithProvider(context, options, provider);
+  } catch (error) {
+    if (context.mpcMode === MpcMode.Real) {
+      rejectPrivateRpcError(error, context.evmRpcUrl);
+    }
+    throw error;
+  } finally {
+    provider.destroy();
+  }
+}
+
+function rejectPrivateRpcError(error: unknown, rpcUrl: string): never {
+  // RPC errors and nested causes may contain authenticated endpoint credentials.
+  throw new Error(redactRpcDiagnostic(error, rpcUrl));
+}
+
+async function broadcastWithProvider(
+  context: VaultContext,
+  options: BroadcastEvmOptions,
+  provider: JsonRpcProvider,
+): Promise<TransactionReceipt> {
   const tolerateRevert = options.tolerateRevert ?? false;
 
   // The hash and sender are already borne by the signed transaction — no
@@ -92,12 +139,15 @@ export async function broadcastEvm(
     throw new Error("transaction is missing a signature (cannot derive hash/sender)");
   }
 
-  console.log(`evm rpc:   ${context.evmRpcUrl}`);
+  console.log(`evm rpc:   ${new URL(context.evmRpcUrl).origin}`);
   console.log(`tx hash:   ${hash} (nonce ${String(nonce)})`);
 
   // 1. Already mined? A receipt exists whether the tx succeeded OR reverted —
   //    both consume the nonce, so there is nothing left to broadcast either way.
   const mined = await provider.getTransactionReceipt(hash);
+  if (context.mpcMode === MpcMode.Real) {
+    await assertRealBroadcast(context, options, provider, mined);
+  }
   if (mined !== null) {
     console.log(`already mined at block ${String(mined.blockNumber)}`);
     return assertMinedOk(mined, hash, tolerateRevert);
@@ -149,6 +199,105 @@ export async function broadcastEvm(
     }
     console.log(`still pending (account nonce ${String(latestNonce)}) — waiting…`);
   }
+}
+
+async function assertRealBroadcast(
+  context: VaultContext,
+  options: BroadcastEvmOptions,
+  provider: JsonRpcProvider,
+  mined: TransactionReceipt | null,
+): Promise<void> {
+  const transaction = options.transaction;
+  if (
+    context.evmChainId !== 11155111n ||
+    transaction.chainId !== 11155111n ||
+    (await provider.getNetwork()).chainId !== 11155111n
+  ) {
+    throw new Error("real broadcast requires the requested Sepolia chain 11155111");
+  }
+  if (
+    options.requestId === undefined ||
+    options.requestsPath === undefined ||
+    !context.mpcPublicKey
+  ) {
+    throw new Error("real broadcast requires the exact request ID, map path and MPC public key");
+  }
+  const reader = createResponseReader(context, options.requestsPath);
+  const request = await reader.getSignatureRequest(options.requestId);
+  const expected = signBidirectionalEventToUnsignedEvmTransaction(request);
+  if (
+    bytesToHex(request.sender.bytes) !==
+      stripHexPrefix(context.vaultContractAddress).toLowerCase() ||
+    expected.unsignedSerialized !== transaction.unsignedSerialized ||
+    deriveEvmAddress(
+      context.mpcPublicKey,
+      context.vaultContractAddress,
+      bytesToHex(request.path),
+    ) !== transaction.from
+  ) {
+    throw new Error("signed transaction does not match the exact request and root-derived signer");
+  }
+  if (mined !== null) {
+    const block = await provider.getBlock(mined.blockNumber);
+    if (mined.hash !== transaction.hash || block?.hash !== mined.blockHash) {
+      throw new Error("real broadcast receipt is not the exact transaction in a canonical block");
+    }
+    return;
+  }
+  const state = await readVaultLedger(
+    context.providers.publicDataProvider,
+    context.vaultContractAddress,
+  );
+  const path = JSON.stringify(options.requestsPath);
+  const pending =
+    path === JSON.stringify(VAULT_DEPOSIT_REQUESTS_PATH)
+      ? state.depositSettleViews
+      : path === JSON.stringify(VAULT_REQUESTS_PATH)
+        ? state.withdrawSettleViews
+        : undefined;
+  const key = requestIdBytes(options.requestId);
+  if (!pending?.member(key)) {
+    throw new Error(
+      "real broadcast requires the request's pending deposit or withdrawal settlement record",
+    );
+  }
+  const from = transaction.from;
+  if (transaction.to === null)
+    throw new Error("request transaction must name its sender and ERC20");
+  const [latestNonce, pendingNonce, block, balance, token] = await Promise.all([
+    provider.getTransactionCount(from, "latest"),
+    provider.getTransactionCount(from, "pending"),
+    provider.getBlock("latest"),
+    provider.getBalance(from),
+    getErc20Balance(context.evmRpcUrl, transaction.to, from),
+  ]);
+  if (latestNonce !== transaction.nonce || pendingNonce !== transaction.nonce) {
+    throw new Error(
+      `saved request nonce ${String(transaction.nonce)} is not current (latest ${String(latestNonce)}, pending ${String(pendingNonce)}); reconcile before a fresh request`,
+    );
+  }
+  const maxFee = transaction.maxFeePerGas;
+  const priorityFee = transaction.maxPriorityFeePerGas;
+  if (
+    maxFee === null ||
+    priorityFee === null ||
+    block?.baseFeePerGas == null ||
+    maxFee < block.baseFeePerGas + priorityFee
+  ) {
+    throw new Error(
+      "saved request fee caps are not viable at the current base fee; retain the request and revalidate before resuming",
+    );
+  }
+  const needed = transaction.gasLimit * maxFee + transaction.value;
+  if (balance < needed)
+    throw new Error(
+      `fund ${from} with ETH: balance ${String(balance)}, required ${String(needed)} wei`,
+    );
+  const amount = pending.lookup(key).amount;
+  if (token.balance < amount)
+    throw new Error(
+      `fund ${from} with token ${transaction.to}: balance ${String(token.balance)}, required ${String(amount)} base units`,
+    );
 }
 
 /**

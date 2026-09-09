@@ -9,8 +9,11 @@
 // - bail + --disable-console-intercept stay on the test:e2e script.
 import { basename } from "node:path";
 
-import { defineConfig } from "vitest/config";
+import { tsImport } from "tsx/esm/api";
+import { configDefaults, defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
+
+import type * as FlowSelection from "./src/flow-selection.ts";
 
 // Explicit flow order. New flow files must be appended here; unknown files
 // run last, name-ordered. happy-day runs first: it initialises the vault and
@@ -44,10 +47,23 @@ class PipelineSequencer extends BaseSequencer {
   }
 }
 
-export default defineConfig({
-  test: {
-    globalSetup: "./src/setup.ts",
-    fileParallelism: false,
-    sequence: { sequencer: PipelineSequencer },
-  },
+export default defineConfig(async () => {
+  // Workspace packages export TypeScript source, including enums that Node's
+  // config loader cannot erase. Scope their loading to the installed tsx loader.
+  const flows = (await tsImport(
+    "./src/flow-selection.ts",
+    import.meta.url,
+  )) as typeof FlowSelection;
+  const include = flows.integrationTestInclude();
+  if (include !== undefined) {
+    console.log(`Real MPC integration scope: ${include.join(", ")}`);
+  }
+  return {
+    test: {
+      include: include ?? configDefaults.include,
+      globalSetup: "./src/setup.ts",
+      fileParallelism: false,
+      sequence: { sequencer: PipelineSequencer },
+    },
+  };
 });

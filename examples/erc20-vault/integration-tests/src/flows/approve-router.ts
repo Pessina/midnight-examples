@@ -24,6 +24,7 @@ import {
   UNISWAP_SWAP_ROUTER_02,
 } from "@sig-net/midnight-examples-erc20-vault-contract";
 import {
+  assertFakenetMode,
   type ContractReadMethod,
   getTransactionNonce,
   logSkip,
@@ -54,6 +55,7 @@ export async function approveRouter(
   context: VaultContext,
   evmNonce: bigint,
 ): Promise<RequestIdHex> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "approveRouter");
   const erc20 = evmAddressBytes(context.erc20Address);
   const before = await readVaultLedger(
     context.providers.publicDataProvider,
@@ -121,6 +123,7 @@ export async function approveRouter(
  * @param session - The vault session.
  */
 export async function ensureRouterApproved(session: VaultSession): Promise<void> {
+  assertFakenetMode({ MPC_MODE: session.mpcMode }, "ensureRouterApproved");
   const context = await session.vaultContext();
   const { ethers } = await import("ethers");
   const token = new ethers.Contract(

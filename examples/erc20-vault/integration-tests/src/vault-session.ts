@@ -10,6 +10,8 @@ import type { ProofServerObserver } from "@sig-net/midnight-examples-lib";
 import {
   createE2eSession,
   type E2eSession,
+  type MpcMode,
+  resolveMpcMode,
   type SessionWallet,
 } from "@sig-net/midnight-examples-test-harness";
 
@@ -17,6 +19,8 @@ import { createVaultContext, type VaultContext } from "./vault-context.ts";
 
 /** The shared per-flow-file lifecycle handed out by {@link createVaultSession}. */
 export interface VaultSession {
+  /** MPC mode resolved before the session starts its wallet or providers. */
+  readonly mpcMode: MpcMode;
   /** The shared wallet-backed vault context; built lazily on first use. */
   vaultContext(): Promise<VaultContext>;
   /**
@@ -52,6 +56,7 @@ export function createVaultSession(
   env: NodeJS.ProcessEnv,
   proofObserver?: ProofServerObserver,
 ): VaultSession {
+  const mpcMode = resolveMpcMode(env);
   const session: E2eSession = createE2eSession({
     env,
     requesterAddressEnvVar: "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
@@ -59,6 +64,7 @@ export function createVaultSession(
   let sharedContext: VaultContext | undefined;
 
   return {
+    mpcMode,
     async vaultContext(): Promise<VaultContext> {
       // wallet() re-awaits synced state on every call; the context itself is
       // built once (findDeployedContract needs the setup-deployed vault).

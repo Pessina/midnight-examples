@@ -17,9 +17,11 @@ import {
   UNISWAP_SWAP_ROUTER_02,
 } from "@sig-net/midnight-examples-erc20-vault-contract";
 import { deployVault } from "@sig-net/midnight-examples-erc20-vault-deploy";
+import { buildBaseEnv } from "@sig-net/midnight-examples-lib";
 import {
   assertEnvironment,
   compileContractZk,
+  configureRealMpc,
   deploySignetContractStep,
   ensureMpcResponseKey,
   ensureMpcRootKey,
@@ -28,10 +30,12 @@ import {
   ensureWalletsFunded,
   explainDustSpendRejection,
   logSkip,
+  MpcMode,
   persistFakenetHandoffToDotEnv,
   printMpcServerConfig,
   requireEnv,
   resolveEvmChain,
+  resolveMpcMode,
   runSetupPipeline,
   type SetupStep,
   startFakenetResponder,
@@ -41,6 +45,11 @@ import type { TestProject } from "vitest/node";
 import { stataAvailable } from "./evm-stata.ts";
 import { uniswapAvailable } from "./evm-swap.ts";
 import { dealForkEvmAccounts, SEPOLIA_USDC } from "./fork-funding.ts";
+import { assertRealEvmFunding, verifyRealInfrastructure } from "./real-preflight.ts";
+import { deployRealVault, prepareRealRoles, verifyRealArtifacts } from "./real-setup.ts";
+import { RealMpcStage, resolveRealMpcStage } from "./real-stage.ts";
+import { acquireRealRunLock, loadRealState, saveRealState } from "./real-state.ts";
+import { reconcileRealRequests } from "./real-vault.ts";
 import { resolveUserIdentity } from "./vault-identity.ts";
 
 // The env keys the setup steps populate, in derivation order — the "Minimal
@@ -284,13 +293,76 @@ const STEPS: readonly SetupStep[] = [
   ],
 ];
 
+const REAL_STEPS: readonly SetupStep[] = [
+  [
+    "real preflight: external singleton verifier keys and mined Sepolia callTracer",
+    verifyRealInfrastructure,
+  ],
+  ["real preflight: local proof server and compiler", assertEnvironment],
+  ["real preflight: compiled vault artifact integrity", verifyRealArtifacts],
+  ["real setup: persist deployer/user identities and maintenance key privately", prepareRealRoles],
+  [
+    "real setup: fund only deployer and user on Stagenet",
+    (env) =>
+      ensureWalletsFunded(env, [
+        { label: "deployer", envVar: "DEPLOYER_SEED" },
+        { label: "user", envVar: "USER_SEED" },
+      ]),
+  ],
+  ["real setup: deploy or resume the reserved vault", deployRealVault],
+  [
+    "real setup: derive public response key and EVM accounts",
+    (env) => {
+      ensureMpcResponseKey(env, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
+      ensureVaultEvmAddress(env);
+      ensureUserEvmAddress(env);
+      saveRealState(env);
+    },
+  ],
+  ["real resume: reconcile request and settlement checkpoints", reconcileRealRequests],
+];
+
 /**
  * The vitest globalSetup entrypoint: run the example's setup pipeline and
  * provide the populated env accumulator to the flow-test workers.
  *
  * @param project - The vitest project handed to globalSetup.
+ * @returns The real-run lock teardown, or nothing for offline/fakenet setup.
  * @throws {Error} Whatever the first failing step throws (aborting the whole run).
  */
-export async function setup(project: TestProject): Promise<void> {
-  await runSetupPipeline(project, STEPS);
+export async function setup(
+  project: Pick<TestProject, "provide">,
+): Promise<undefined | (() => void)> {
+  if (!process.env.RUN_INTEGRATION_TESTS) return;
+  const base = buildBaseEnv();
+  if (resolveMpcMode(base) !== MpcMode.Real) {
+    await runSetupPipeline(project, STEPS, base);
+    return;
+  }
+  const stage: RealMpcStage = resolveRealMpcStage(base);
+  configureRealMpc(base);
+  const release = acquireRealRunLock(base);
+  try {
+    const env = loadRealState(base);
+    env.ERC20_ADDRESS ??= SEPOLIA_USDC;
+    if (env.ERC20_ADDRESS.toLowerCase() !== SEPOLIA_USDC.toLowerCase()) {
+      throw new Error("real happy-day requires Sepolia USDC");
+    }
+    const steps: SetupStep[] = [...REAL_STEPS];
+    if (stage === RealMpcStage.Bidirectional) {
+      steps.push(["real preflight: Sepolia account funding", assertRealEvmFunding]);
+    }
+    steps.push([
+      "real setup: discard setup-only credentials before workers",
+      (workerEnv) => {
+        delete workerEnv.ROOT_SEED;
+        delete workerEnv.MAINTENANCE_SIGNING_KEY;
+      },
+    ]);
+    await runSetupPipeline(project, steps, env);
+    return release;
+  } catch (error) {
+    release();
+    throw error;
+  }
 }

@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Runtime plumbing the examples share and @sig-net/midnight-contract-deploy does not publish: split-deploy transaction builders, midnight-js provider adapters, repo .env readers and shielded wallet transfers. Kept ruthlessly small.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./env-file": "./src/env-file.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

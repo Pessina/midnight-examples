@@ -32,11 +32,13 @@ import {
 
 import { requireEnv } from "./e2e-env.ts";
 import { appendRepoDotEnv } from "./env-file.ts";
+import { assertFakenetMode, MpcMode, resolveMpcMode } from "./mpc-mode.ts";
 import { banner, logSkip } from "./output.ts";
+import { configureRealMpc } from "./real-mpc-config.ts";
 import { explainDustSpendRejection } from "./steps.ts";
 
 /** One wallet role: its display label and the env var holding its seed. */
-interface RoleWallet {
+export interface RoleWallet {
   readonly label: string;
   readonly envVar: string;
 }
@@ -87,6 +89,7 @@ function walletAddressLines(label: string, addresses: WalletAddresses): string[]
  * @param env - The suite's env accumulator (mutated with the resolved seeds).
  */
 export function ensureWalletSeeds(env: NodeJS.ProcessEnv): void {
+  assertFakenetMode(env, "generate and persist local wallet seeds");
   const config = getMidnightNodeConfig(env);
   const generated: Record<string, string> = {};
 
@@ -162,9 +165,14 @@ function perChildAmount(env: NodeJS.ProcessEnv, rootNight: bigint, unfundedCount
  * wallets are only checked.
  *
  * @param env - The suite's env accumulator (seeds already resolved).
+ * @param children - Roles to fund; real mode supplies only its deployer and user.
  * @throws {WalletUnfundedError} To halt the run when root needs faucet funding.
  */
-export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void> {
+export async function ensureWalletsFunded(
+  env: NodeJS.ProcessEnv,
+  children: readonly RoleWallet[] = CHILDREN,
+): Promise<void> {
+  if (resolveMpcMode(env) === MpcMode.Real) configureRealMpc(env);
   const config = getMidnightNodeConfig(env);
   const faucetUrl = getFaucetUrl(env, config.networkId);
 
@@ -172,7 +180,7 @@ export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void>
   logFundedPass("root", root);
 
   const checked = [];
-  for (const child of CHILDREN) {
+  for (const child of children) {
     checked.push({
       child,
       funding: await readAccountFunding(config, requireEnv(env, child.envVar)),

@@ -19,6 +19,7 @@ import {
   STATA_USDC,
   VAULT_PATH_BYTES,
 } from "@sig-net/midnight-examples-erc20-vault-contract";
+import { assertFakenetMode } from "@sig-net/midnight-examples-test-harness";
 
 import {
   REDEEM_MPC_ROUTING,
@@ -48,6 +49,7 @@ export async function startRedeem(
   context: VaultContext,
   options: StartRedeemOptions,
 ): Promise<RequestIdHex> {
+  assertFakenetMode({ MPC_MODE: context.mpcMode }, "startRedeem");
   const before = await readVaultLedger(
     context.providers.publicDataProvider,
     context.vaultContractAddress,

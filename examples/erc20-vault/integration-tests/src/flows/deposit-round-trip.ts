@@ -114,7 +114,11 @@ export async function runDepositRoundTrip(
 
   // Idempotent: an already-mined sweep short-circuits; a reverted or
   // nonce-burned sweep throws — either would starve the claim, so let it.
-  await broadcastEvm(context, { transaction: signedSweepTransaction });
+  await broadcastEvm(context, {
+    transaction: signedSweepTransaction,
+    requestId,
+    requestsPath: VAULT_DEPOSIT_REQUESTS_PATH,
+  });
 
   const outcome = await pollRespondBidirectional(context, {
     requestId,
