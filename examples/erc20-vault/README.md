@@ -396,6 +396,23 @@ docker compose up -d                # node, indexer, proof server, anvil forking
 yarn test:erc20-vault:e2e           # the full e2e suite, serially, bail on first failure
 ```
 
+To bring the same stack up WITHOUT running the suite (a local development
+environment for a client, or for hand-driving the flows), run the setup
+pipeline on its own after `docker compose up -d`:
+
+```sh
+yarn setup-local:erc20-vault        # deploy signet + vault, initialise, persist to .env
+```
+
+It runs the suite's own setup steps in-process, then the deploy package's
+`initialise`, and appends every value it generated to `.env` under the names
+the suite reads: the role wallet seeds, `MPC_ROOT_KEY`, `MPC_SECP256K1_PUBKEY`,
+both contract addresses, `MPC_RESPONSE_KEY`, the derived EVM addresses,
+`EVM_CHAIN_ID`, `ERC20_ADDRESS`, `VAULT_DEPLOYER_SECRET_KEY` and
+`MAINTENANCE_SIGNING_KEY`. Append-only: a value already in `.env` is left
+alone, and one that differs from the run's is an error. A following
+`yarn test:erc20-vault:e2e` reuses the stack with every setup step skipping.
+
 Offline checks that need no stack and no proving keys beyond `yarn compile`:
 
 ```sh
@@ -611,7 +628,8 @@ circuit later, so a deploy to any network other than the local standalone chain
 REQUIRES it and fails fast when it is unset. On the local chain, which is
 throwaway, an unset key makes the deploy generate an ephemeral one and print it,
 so a `yarn resume-deploy:erc20-vault` after a failed maintenance add can export
-it.
+it. The e2e setup and `yarn setup-local:erc20-vault` generate it before the
+deploy, so their printout and the persisted `.env` carry it.
 
 ### Deploying from CI
 
