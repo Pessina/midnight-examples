@@ -466,6 +466,10 @@ NETWORK_ID=stagenet        # any deployed network the SDK publishes values for
 ROOT_SEED=                 # funded via the network's faucet (the first run prints the address and URL)
 MAINTENANCE_SIGNING_KEY=   # 32 bytes of hex, required on any deployed network
 EVM_RPC_URL=               # a REAL Sepolia RPC that serves debug_traceTransaction
+# Optional: read the deposit and withdraw attestations' output bytes from the
+# MPC's output cache (the one the SDK publishes for the network) instead of
+# recomputing them from the trace.
+#RESPOND_OUTPUT_SOURCE=mpc-cache
 ```
 
 What differs from the local loop:
@@ -490,6 +494,16 @@ What differs from the local loop:
   itself observes with), and the setup refuses an endpoint without it before
   anything is deployed. The local anvil serves it, and hosted Sepolia
   endpoints often gate it behind a paid tier.
+- **Optionally, the MPC's output cache.** An MPC configured with output
+  storage uploads the exact bytes it attests for each request to a public
+  bucket before it posts the attestation. `RESPOND_OUTPUT_SOURCE=mpc-cache`
+  makes the deposit and withdraw polls download those bytes from the cache
+  the SDK publishes for the network (`getMpcOutputCacheUrl`), or from
+  `MPC_OUTPUT_CACHE_URL` when set (the cache's URL down to the MPC's object
+  prefix, the poll appending `/<network>/<signet address>/<request id>.bin`),
+  instead of recomputing them from the trace; the same signature check then
+  selects them. The swap, supply and redeem polls always trace, so the tracing RPC
+  stays required.
 - **Only the specs that never sign as the vault run here:** `happy-day-e2e`,
   `bearer-transfer`, `swap-e2e`, `supply-redeem-e2e` and `swap-refund-e2e`.
   The others force reverts with a vault key re-derived from `MPC_ROOT_KEY`
