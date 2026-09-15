@@ -192,9 +192,12 @@ unset), takes the signet singleton the SDK publishes for the network instead
 of deploying one, skips the fakenet hand-off on its own, and skips anvil dealing on a
 non-anvil `EVM_RPC_URL` (fund the printed derived accounts by hand, `STEP_THROUGH=1`).
 Execution outputs come from `debug_traceTransaction` on `EVM_RPC_URL` on every
-network, and the setup step "verify EVM_RPC_URL serves debug_traceTransaction"
-refuses an endpoint without it. The deposit and withdraw polls can instead
-download the attested bytes from the MPC's output cache:
+network, and under `RESPOND_OUTPUT_SOURCE=evm-node` (the default) the setup
+step "verify EVM_RPC_URL serves debug_traceTransaction" refuses an endpoint
+without it. The deposit and withdraw polls can instead download the attested
+bytes from the MPC's output cache, and the setup then skips that check (the
+swap, supply and redeem polls still trace, so their specs need a tracing
+endpoint):
 `RESPOND_OUTPUT_SOURCE=mpc-cache`, reading the cache the SDK publishes for the
 network (stagenet:
 `https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet`) unless
@@ -202,8 +205,7 @@ network (stagenet:
 prefix; the poll appends `/<network>/<signet address>/<request id>.bin`). On
 the local stack no cache is published, so set
 `MPC_OUTPUT_CACHE_URL=http://127.0.0.1:3040/v1/fakenet`, the compose fakenet's
-simulation. The trace check still runs: the swap, supply and redeem polls
-always trace. Only the specs that never
+simulation. Only the specs that never
 sign as the vault can run there (`happy-day-e2e`, `bearer-transfer`,
 `swap-e2e`, `supply-redeem-e2e`, `swap-refund-e2e`); the rest re-derive the
 vault key from `MPC_ROOT_KEY` and stay fakenet-only. Start only the

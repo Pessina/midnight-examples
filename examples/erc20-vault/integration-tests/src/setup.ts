@@ -1,6 +1,6 @@
 // The example's vitest globalSetup: compose the ordered setup pipeline
-// (environment check -> wallet seeds + root funding -> EVM chain + trace RPC
-// check + test token -> MPC key derivation -> signet deploy -> fakenet responder hand-off ->
+// (environment check -> wallet seeds + root funding -> EVM chain + output
+// source + trace RPC check + test token -> MPC key derivation -> signet deploy -> fakenet responder hand-off ->
 // vault zk compile + deploy -> MPC response key -> derived EVM addresses ->
 // fork dealing -> fork dependency check -> MPC hand-off printout) from the
 // harness's generic steps plus the vault-specific steps below, and run it via
@@ -279,6 +279,30 @@ function ensureRespondOutputSource(env: NodeJS.ProcessEnv): void {
 }
 
 /**
+ * Refuse an `EVM_RPC_URL` without `debug_traceTransaction` when the deposit
+ * and withdraw polls recompute attested outputs from the trace. Under
+ * `mpc-cache` those polls read the MPC's output cache, so a non-tracing
+ * endpoint is accepted; the swap, supply and redeem polls always trace, and
+ * their specs fail on such an endpoint at the poll.
+ *
+ * @param env - The suite's env accumulator (reads `RESPOND_OUTPUT_SOURCE` and `EVM_RPC_URL`).
+ * @throws {Error} If the source is the EVM node and the endpoint refuses the method.
+ */
+async function verifyTraceRpc(env: NodeJS.ProcessEnv): Promise<void> {
+  if (parseOutputSource(requireEnv(env, "RESPOND_OUTPUT_SOURCE")) === OutputSource.MPCCache) {
+    logSkip(
+      "verify EVM_RPC_URL serves debug_traceTransaction",
+      `RESPOND_OUTPUT_SOURCE=${OutputSource.MPCCache}: the deposit and withdraw polls read the MPC's output cache`,
+    );
+    console.log(
+      " ➜ the swap, supply and redeem polls still trace, so their specs need a tracing EVM_RPC_URL",
+    );
+    return;
+  }
+  await assertDebugTraceAvailable(requireEnv(env, "EVM_RPC_URL"));
+}
+
+/**
  * Default `ERC20_ADDRESS` to real Sepolia USDC — the suites run against a Sepolia fork, so the
  * token is the real (unmintable) USDC rather than a locally deployed test token. Any other
  * ERC20 with a standard balance mapping (dealable by storage write) can be pinned explicitly.
@@ -338,11 +362,8 @@ const STEPS: readonly SetupStep[] = [
   ["setup: resolve/generate wallet seeds (root + deployer/user/mpc responder)", ensureWalletSeeds],
   ["setup: inspect role wallets and fund empty wallets", ensureWalletsFunded],
   ["setup: resolve EVM chain id from EVM_RPC_URL", resolveEvmChain],
-  [
-    "setup: verify EVM_RPC_URL serves debug_traceTransaction",
-    (env) => assertDebugTraceAvailable(requireEnv(env, "EVM_RPC_URL")),
-  ],
   ["setup: default RESPOND_OUTPUT_SOURCE to the EVM node's trace", ensureRespondOutputSource],
+  ["setup: verify EVM_RPC_URL serves debug_traceTransaction", verifyTraceRpc],
   ["setup: default ERC20_ADDRESS to real Sepolia USDC", ensureErc20Address],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
   [
