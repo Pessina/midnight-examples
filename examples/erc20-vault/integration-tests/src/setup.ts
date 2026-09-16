@@ -1,10 +1,12 @@
-// The example's vitest globalSetup: compose the ordered setup pipeline
+// The example's setup pipeline: compose the ordered steps
 // (environment check -> wallet seeds + root funding -> EVM chain + output
 // source + trace RPC check + test token -> MPC key derivation -> signet deploy -> fakenet responder hand-off ->
 // vault zk compile + deploy -> MPC response key -> derived EVM addresses ->
 // fork dealing -> fork dependency check -> MPC hand-off printout) from the
-// harness's generic steps plus the vault-specific steps below, and run it via
-// `runSetupPipeline` in vitest's main process. The signet contract needs no zk-compile step: its
+// harness's generic steps plus the vault-specific steps below. The vitest
+// globalSetup `setup` runs it via `runSetupPipeline` in vitest's main process,
+// and `scripts/setup-local.ts` runs the same steps outside vitest to bring up
+// a local stack by hand. The signet contract needs no zk-compile step: its
 // proving keys ship inside the published @sig-net/midnight-contract package
 // the deploy reads them from. The MPC response key step runs AFTER the vault
 // deploy: the key derives from the vault's own contract address, and the
@@ -13,7 +15,9 @@
 import { bytesToHex, deriveEvmAddress, getMpcOutputCacheUrl } from "@sig-net/midnight";
 import {
   deployedNetwork,
+  generateHexSeed,
   getMidnightNodeConfig,
+  isLocalStandaloneNetwork,
   type WalletRegistry,
 } from "@sig-net/midnight-contract-deploy";
 import {
@@ -52,14 +56,21 @@ import { assertDebugTraceAvailable } from "./observed-execution.ts";
 import { OutputSource, parseOutputSource } from "./output-source.ts";
 import { resolveUserIdentity } from "./vault-identity.ts";
 
-// The env keys the setup steps populate, in derivation order — the "Minimal
-// .env block" printout reads like the flow that produced it.
-const PIPELINE_KEYS = [
+/**
+ * The env keys the setup steps populate beyond the wallet seeds, in
+ * derivation order, so the "Minimal .env block" printout reads like the flow
+ * that produced it and `scripts/setup-local.ts` persists them in that order.
+ * The two secrets are present only on the run that deploys the vault (a
+ * rerun against a kept address reads them from `.env` or leaves them unset).
+ */
+export const VAULT_PIPELINE_KEYS = [
   "EVM_CHAIN_ID",
   "ERC20_ADDRESS",
   "MPC_ROOT_KEY",
   "MPC_SECP256K1_PUBKEY",
   "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
+  "VAULT_DEPLOYER_SECRET_KEY",
+  "MAINTENANCE_SIGNING_KEY",
   "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
   "MPC_RESPONSE_KEY",
   "EVM_VAULT_ADDRESS",
@@ -77,6 +88,12 @@ const PIPELINE_KEYS = [
  * set, this step runs the deploy package's `resumeVaultDeploy` instead: it
  * installs whatever circuits the vault still lacks, and passes straight
  * through on a vault with every circuit.
+ *
+ * On the local chain the maintenance authority the base deploy seals is
+ * generated INTO the accumulator here, so the printout and the local setup
+ * entrypoint can hand it to a later `resume-deploy`. A deployed network
+ * must supply `MAINTENANCE_SIGNING_KEY` itself: the deploy refuses to run
+ * without it.
  *
  * @param env - The suite's env accumulator (the deploy reads `DEPLOYER_SEED`,
  *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MAINTENANCE_SIGNING_KEY` and node
@@ -118,6 +135,18 @@ async function deployVaultContractStep(
     env.VAULT_DEPLOYER_SECRET_KEY = bytesToHex(resolveUserIdentity(env).secretKey);
     console.log(
       "defaulted VAULT_DEPLOYER_SECRET_KEY to the user identity secret (initialise is deployer-gated)",
+    );
+  }
+  if (
+    !env.MAINTENANCE_SIGNING_KEY &&
+    isLocalStandaloneNetwork(getMidnightNodeConfig(env).networkId)
+  ) {
+    env.MAINTENANCE_SIGNING_KEY = generateHexSeed();
+    console.log(
+      `generated MAINTENANCE_SIGNING_KEY=${env.MAINTENANCE_SIGNING_KEY} for the local split deploy`,
+    );
+    console.log(
+      " ➜ the sealed maintenance authority: export it to `yarn resume-deploy:erc20-vault` if a maintenance add fails",
     );
   }
   const { contractAddress } = await explainDustSpendRejection("deploy vault contract", () =>
@@ -404,10 +433,20 @@ const STEPS: readonly SetupStep[] = [
   [
     "setup: print MPC server configuration",
     (env) => {
-      printMpcServerConfig(env, PIPELINE_KEYS);
+      printMpcServerConfig(env, VAULT_PIPELINE_KEYS);
     },
   ],
 ];
+
+/**
+ * The vault's ordered setup steps, shared by the vitest globalSetup below and
+ * `scripts/setup-local.ts`.
+ *
+ * @returns The steps, in run order.
+ */
+export function vaultSetupSteps(): readonly SetupStep[] {
+  return STEPS;
+}
 
 /**
  * The vitest globalSetup entrypoint: run the example's setup pipeline and
