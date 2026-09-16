@@ -94,20 +94,38 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@effect/platform-node-shared@npm:^0.61.0":
-  version: 0.61.0
-  resolution: "@effect/platform-node-shared@npm:0.61.0"
+"@effect/platform-node-shared@npm:^0.61.1":
+  version: 0.61.1
+  resolution: "@effect/platform-node-shared@npm:0.61.1"
   dependencies:
     "@parcel/watcher": "npm:^2.5.1"
-    multipasta: "npm:^0.2.7"
+    multipasta: "npm:^0.2.8"
     ws: "npm:^8.18.2"
   peerDependencies:
-    "@effect/cluster": ^0.60.0
-    "@effect/platform": ^0.97.0
-    "@effect/rpc": ^0.76.0
-    "@effect/sql": ^0.52.0
-    effect: ^3.22.0
-  checksum: 10c0/4c6fb1c3a4525b4a5a5df89c1391ee9ffb7ea3f4a74417c1a888b8ea25aa4371a24f9e92b1663b9edfc0cb99d57c8af581f7cb168244f636e3385532bbd3265c
+    "@effect/cluster": ^0.60.1
+    "@effect/platform": ^0.97.1
+    "@effect/rpc": ^0.76.1
+    "@effect/sql": ^0.52.1
+    effect: ^3.22.1
+  checksum: 10c0/1f7280e403fdd751ed3c1d60d0e831fba6f3810937a106bba5b6422692eba9b14efa74c8a518e5106e29c1de8386d48d2a2d5f9e3ab9f9ff3d814de84942ced6
+  languageName: node
+  linkType: hard
+
+"@effect/platform-node@npm:0.108.2, @effect/platform-node@npm:^0.108.2":
+  version: 0.108.2
+  resolution: "@effect/platform-node@npm:0.108.2"
+  dependencies:
+    "@effect/platform-node-shared": "npm:^0.61.1"
+    mime: "npm:^3.0.0"
+    undici: "npm:^7.10.0"
+    ws: "npm:^8.18.2"
+  peerDependencies:
+    "@effect/cluster": ^0.60.2
+    "@effect/platform": ^0.97.2
+    "@effect/rpc": ^0.76.2
+    "@effect/sql": ^0.52.1
+    effect: ^3.22.2
+  checksum: 10c0/7b65cc703e26642231dbe7fc24fd242e07876e5c0b25d33ce26da419fc3ade30220c6f9240b76d1260e30a05eda8c34e051c486fa6fb95320f9345d1fb8d11d1
   languageName: node
   linkType: hard
 
@@ -126,24 +144,6 @@ __metadata:
     "@effect/sql": ^0.51.1
     effect: ^3.21.2
   checksum: 10c0/149012a3ab6b5b253fe915a60b0cb1d0154cef2f0ac3a7c34b72c7ebb40a88d12b05836ea1d4fead95087c6bf6c5ebea25e89ce490193035293a6884178e17f9
-  languageName: node
-  linkType: hard
-
-"@effect/platform-node@npm:^0.108.0":
-  version: 0.108.0
-  resolution: "@effect/platform-node@npm:0.108.0"
-  dependencies:
-    "@effect/platform-node-shared": "npm:^0.61.0"
-    mime: "npm:^3.0.0"
-    undici: "npm:^7.10.0"
-    ws: "npm:^8.18.2"
-  peerDependencies:
-    "@effect/cluster": ^0.60.0
-    "@effect/platform": ^0.97.0
-    "@effect/rpc": ^0.76.0
-    "@effect/sql": ^0.52.0
-    effect: ^3.22.0
-  checksum: 10c0/1a665170faf4bc66c5d1e4b0a081048fe4710708f75369ecfa5267f2f7b78dafbbf9aa09d2181690e80687d111df110794d91b79daf0d1eac8434ad4d064b37d
   languageName: node
   linkType: hard
 
@@ -1030,7 +1030,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/wasm-runtime@npm:^1.1.4":
+"@napi-rs/wasm-runtime@npm:^1.1.4, @napi-rs/wasm-runtime@npm:^1.1.6":
   version: 1.2.2
   resolution: "@napi-rs/wasm-runtime@npm:1.2.2"
   dependencies:
@@ -1771,11 +1771,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sig-net/midnight-contract-deploy@npm:0.21.0-rc.10":
-  version: 0.21.0-rc.10
-  resolution: "@sig-net/midnight-contract-deploy@npm:0.21.0-rc.10"
+"@sig-net/midnight-contract-deploy@npm:0.22.0-rc.1":
+  version: 0.22.0-rc.1
+  resolution: "@sig-net/midnight-contract-deploy@npm:0.22.0-rc.1"
   dependencies:
-    "@effect/platform-node": "npm:^0.107.0"
+    "@effect/platform-node": "npm:^0.108.2"
     "@midnight-ntwrk/compact-js": "npm:2.5.5-rc.7"
     "@midnight-ntwrk/compact-js-node": "npm:2.5.5-rc.7"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
@@ -1789,20 +1789,20 @@ __metadata:
     "@midnightntwrk/wallet-sdk-shielded": "npm:4.0.0-beta.2"
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "npm:4.0.0-beta.2"
     "@scure/bip39": "npm:^2.2.0"
-    "@sig-net/midnight": "npm:^0.21.0-rc.10"
-    "@sig-net/midnight-contract": "npm:^0.21.0-rc.10"
-    effect: "npm:^3.21.4"
-  checksum: 10c0/53447a9c5caaf8b56e304d19f8e4b5cb8e850ffa204c567fc582e9e63c1447130a831b163cc2fb8afc8c9be8ac1d78b5f28dbdf3bdc2b541e28213be85706717
+    "@sig-net/midnight": "npm:^0.22.0-rc.1"
+    "@sig-net/midnight-contract": "npm:^0.22.0-rc.1"
+    effect: "npm:^3.22.2"
+  checksum: 10c0/666b8b2a0f876125dd93803aac9cd5587bd3b5b7e19b05ae9ec1580c432002b414f079927a453c455b5909a406e363e2bd995c6eb51c4d1186689e1f1459e046
   languageName: node
   linkType: hard
 
-"@sig-net/midnight-contract@npm:0.21.0-rc.10, @sig-net/midnight-contract@npm:^0.21.0-rc.10":
-  version: 0.21.0-rc.10
-  resolution: "@sig-net/midnight-contract@npm:0.21.0-rc.10"
+"@sig-net/midnight-contract@npm:0.22.0-rc.1, @sig-net/midnight-contract@npm:^0.22.0-rc.1":
+  version: 0.22.0-rc.1
+  resolution: "@sig-net/midnight-contract@npm:0.22.0-rc.1"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
-  checksum: 10c0/3a91cd91837fd1d52af23c10ba92120044289994baa5897a6cd0066cb5097724f3bf236af6b3902aa03850c509bc5909f7bb22a2e856dab7920b874462ad4d3a
+  checksum: 10c0/e8741454633de151e51b512c42211d568f6846cfc849b0a4db9cadcc2208c8e09d33f949126dfb1f248cf39f8b778615707e790248e178dd8f93f4b9f5a60f11
   languageName: node
   linkType: hard
 
@@ -1813,8 +1813,8 @@ __metadata:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
     "@midnightntwrk/onchain-runtime-v4": "npm:4.0.0-rc.3"
-    "@sig-net/midnight": "npm:0.21.0-rc.10"
-    "@sig-net/midnight-contract": "npm:0.21.0-rc.10"
+    "@sig-net/midnight": "npm:0.22.0-rc.1"
+    "@sig-net/midnight-contract": "npm:0.22.0-rc.1"
     "@types/node": "npm:^26.1.1"
     tsx: "npm:^4.23.1"
     typescript: "npm:^7.0.2"
@@ -1833,9 +1833,9 @@ __metadata:
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "npm:5.0.0-beta.6"
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "npm:5.0.0-beta.6"
     "@midnightntwrk/ledger-v9": "npm:1.0.0-rc.3"
-    "@sig-net/midnight": "npm:0.21.0-rc.10"
-    "@sig-net/midnight-contract": "npm:0.21.0-rc.10"
-    "@sig-net/midnight-contract-deploy": "npm:0.21.0-rc.10"
+    "@sig-net/midnight": "npm:0.22.0-rc.1"
+    "@sig-net/midnight-contract": "npm:0.22.0-rc.1"
+    "@sig-net/midnight-contract-deploy": "npm:0.22.0-rc.1"
     "@sig-net/midnight-examples-erc20-vault-contract": "workspace:*"
     "@sig-net/midnight-examples-lib": "workspace:*"
     "@types/node": "npm:^26.1.1"
@@ -1852,8 +1852,8 @@ __metadata:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "npm:5.0.0-beta.6"
-    "@sig-net/midnight": "npm:0.21.0-rc.10"
-    "@sig-net/midnight-contract-deploy": "npm:0.21.0-rc.10"
+    "@sig-net/midnight": "npm:0.22.0-rc.1"
+    "@sig-net/midnight-contract-deploy": "npm:0.22.0-rc.1"
     "@sig-net/midnight-examples-erc20-vault-contract": "workspace:*"
     "@sig-net/midnight-examples-erc20-vault-deploy": "workspace:*"
     "@sig-net/midnight-examples-lib": "workspace:*"
@@ -1871,7 +1871,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-examples-lib@workspace:packages/lib"
   dependencies:
-    "@effect/platform-node": "npm:^0.108.0"
+    "@effect/platform-node": "npm:0.108.2"
     "@midnight-ntwrk/compact-js": "npm:2.5.5-rc.7"
     "@midnight-ntwrk/compact-js-node": "npm:2.5.5-rc.7"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
@@ -1879,9 +1879,10 @@ __metadata:
     "@midnight-ntwrk/platform-js": "npm:^3.0.0"
     "@midnightntwrk/ledger-v9": "npm:1.0.0-rc.3"
     "@midnightntwrk/wallet-sdk-facade": "npm:5.0.0-beta.2"
-    "@sig-net/midnight-contract-deploy": "npm:0.21.0-rc.10"
+    "@sig-net/midnight-contract-deploy": "npm:0.22.0-rc.1"
     "@types/node": "npm:^26.1.1"
-    effect: "npm:^3.22.0"
+    effect: "npm:3.22.2"
+    ethers: "npm:^6.17.0"
     typescript: "npm:^7.0.2"
     vitest: "npm:^5.0.0"
   languageName: unknown
@@ -1892,8 +1893,8 @@ __metadata:
   resolution: "@sig-net/midnight-examples-test-harness@workspace:packages/test-harness"
   dependencies:
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "npm:5.0.0-beta.6"
-    "@sig-net/midnight": "npm:0.21.0-rc.10"
-    "@sig-net/midnight-contract-deploy": "npm:0.21.0-rc.10"
+    "@sig-net/midnight": "npm:0.22.0-rc.1"
+    "@sig-net/midnight-contract-deploy": "npm:0.22.0-rc.1"
     "@sig-net/midnight-examples-lib": "workspace:*"
     "@types/node": "npm:^26.1.1"
     ethers: "npm:^6.17.0"
@@ -1920,23 +1921,23 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-serde@npm:^0.21.0-rc.10":
-  version: 0.21.0-rc.10
-  resolution: "@sig-net/midnight-serde@npm:0.21.0-rc.10"
-  checksum: 10c0/bde7c1220453f1c1ba1eb068e60c2a0da6b0fb6a413d99386636b8bc34d7a9b043aca8340e8785337b41dc872876d242fcaa028329552c04e5bed96f7efd3ac1
+"@sig-net/midnight-serde@npm:^0.22.0-rc.1":
+  version: 0.22.0-rc.1
+  resolution: "@sig-net/midnight-serde@npm:0.22.0-rc.1"
+  checksum: 10c0/a8028f2002b9babf19e24219ddda93db521fdf97538ef3b77984b2de0d4b77016073926ef31e9b3e4e1dc9251bf97179ab83cab67f43a96975d129e0c6a92271
   languageName: node
   linkType: hard
 
-"@sig-net/midnight@npm:0.21.0-rc.10, @sig-net/midnight@npm:^0.21.0-rc.10":
-  version: 0.21.0-rc.10
-  resolution: "@sig-net/midnight@npm:0.21.0-rc.10"
+"@sig-net/midnight@npm:0.22.0-rc.1, @sig-net/midnight@npm:^0.22.0-rc.1":
+  version: 0.22.0-rc.1
+  resolution: "@sig-net/midnight@npm:0.22.0-rc.1"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js-types": "npm:5.0.0-beta.6"
     "@noble/curves": "npm:^2.2.0"
-    "@sig-net/midnight-serde": "npm:^0.21.0-rc.10"
+    "@sig-net/midnight-serde": "npm:^0.22.0-rc.1"
     ethers: "npm:^6.17.0"
-  checksum: 10c0/18124bfe144bfa3be4c63a087cce6ae04d33ff209fd1a9843041b26844e5d7d89b7f043b6bc9c1ba2eb928686d7493d0c99ee3347f3c38ee0353ecfa4a742975
+  checksum: 10c0/f5b52460f297b94a1a90aa7acc171b2c589eb78648f90c3015755a2e71f98f2a48f08d2bcfb5ccfe7241b038d8d267edcc4ad5472037dfe9cbc9691eb1141e16
   languageName: node
   linkType: hard
 
@@ -2862,13 +2863,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"effect@npm:^3.19.19, effect@npm:^3.20.0, effect@npm:^3.21.0, effect@npm:^3.21.4, effect@npm:^3.22.0":
-  version: 3.22.0
-  resolution: "effect@npm:3.22.0"
+"effect@npm:3.22.2, effect@npm:^3.19.19, effect@npm:^3.20.0, effect@npm:^3.21.0, effect@npm:^3.21.4, effect@npm:^3.22.2":
+  version: 3.22.2
+  resolution: "effect@npm:3.22.2"
   dependencies:
     "@standard-schema/spec": "npm:^1.0.0"
     fast-check: "npm:^3.23.1"
-  checksum: 10c0/3a9fe54271eef30e03b018592de66afaec2a0fec3351cf526569e919257702ce58e97375def2ab95946ad0e1f30c4b41fae7a08e4210976e8e1a43628505ac4c
+  checksum: 10c0/4ada5ee284ec0eb058ec0713dc6ae5f6ca670cb995d08c0f4ae0f5eb2b27802d49cf3137c2e3d3469fac77b3910bef40fe17f933becf6ffc7aa234f735ba0e6e
   languageName: node
   linkType: hard
 
@@ -3727,7 +3728,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"multipasta@npm:^0.2.7":
+"multipasta@npm:^0.2.7, multipasta@npm:^0.2.8":
   version: 0.2.8
   resolution: "multipasta@npm:0.2.8"
   checksum: 10c0/f645415c27736db1db5f0b8e05248c0a6589d265d1ee277eb5fa50b7be268479b64aa29dc27f968acdb2191907691ba6ebad7631e375acaeb39785acf5f21377
